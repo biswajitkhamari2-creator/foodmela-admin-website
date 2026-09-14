@@ -3,3 +3,6 @@ dist/
 .vercel/
 *.local
 .DS_Store
+.env
+.env.*
+!.env.example

@@ -3,6 +3,7 @@ import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestor
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { tsToDate, fmtDateTime } from '../utils/helpers';
+import { useCustomerNames, freshName } from '../hooks/useCustomerNames';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface OrderDoc extends Record<string, unknown> {
@@ -53,6 +54,8 @@ export default function Dashboard() {
   const [orders, setOrders] = useState<OrderDoc[]>([]);
   const [users, setUsers] = useState<UserDoc[]>([]);
   const [loading, setLoading] = useState(true);
+  // Live profile names — a rename reflects here instantly, not just Customers.
+  const names = useCustomerNames();
 
   useEffect(() => {
     let usersData: UserDoc[] = [];
@@ -255,7 +258,7 @@ export default function Dashboard() {
                 return (
                   <div key={o.id as string} className="dash-live-row" onClick={() => nav(`/orders/${o.orderId ?? o.id}`)}>
                     <span className="dash-live-id">{String(o.orderId ?? o.id).replace(/^FM-/, '')}</span>
-                    <span className="dash-live-customer">{String(o.customerName ?? '—')}</span>
+                    <span className="dash-live-customer">{freshName(names, o.customerPhone, o.customerName)}</span>
                     <span className="dash-live-partner">{String(o.riderName ?? '—')}</span>
                     <span className="dash-live-badge" style={{ background: st.bg, color: st.color, border: `1px solid ${st.dot}30` }}>
                       {stageLabel(o.stage ?? 0)}

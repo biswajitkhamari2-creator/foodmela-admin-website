@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { tsToDate, fmtDateTime } from '../utils/helpers';
-import { StageBadge } from '../components/UI';
+import { StageBadge, ConfirmDialog, Toast } from '../components/UI';
+import CallLogsPlayer from '../components/CallLogsPlayer';
 import type { OrderRecord } from '../types';
+import { useCustomerNames, freshName } from '../hooks/useCustomerNames';
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -26,9 +29,54 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 export default function OrderDetail() {
   const { orderId } = useParams();
+  const { user, adminName } = useAuth();
+  const names = useCustomerNames();
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [confirm, setConfirm] = useState<'accept' | 'reject' | 'deliver' | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [processing, setProcessing] = useState(false);
+
+  const handleOrderAction = async () => {
+    if (!confirm || !order) return;
+    setProcessing(true);
+    try {
+      const isAccept = confirm === 'accept';
+      const isDeliver = confirm === 'deliver';
+      await updateDoc(doc(db, 'orders', order.id), isAccept ? {
+        stage: 1,
+        status: 'Accepted by Admin ✅',
+        acceptedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      } : isDeliver ? {
+        stage: 3,
+        status: 'Delivered by Admin 🏁 (no OTP)',
+        deliveredAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      } : {
+        stage: -1,
+        status: 'Rejected by Admin 🚨',
+        cancelledAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      await addDoc(collection(db, 'admin_audit_logs'), {
+        adminPhone: user?.uid ?? 'admin',
+        adminName: adminName || 'Admin',
+        action: isAccept ? 'orderAccepted' : isDeliver ? 'orderDeliveredNoOtp' : 'orderRejected',
+        targetId: order.orderId ?? order.id,
+        targetType: 'order',
+        metadata: { docId: order.id },
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+      setToast({ message: isAccept ? 'Order accepted ✅' : isDeliver ? 'Delivery closed — no OTP needed 🏁' : 'Order rejected', type: 'success' });
+    } catch (e: unknown) {
+      setToast({ message: e instanceof Error ? e.message : 'Action failed', type: 'error' });
+    }
+    setProcessing(false);
+    setConfirm(null);
+  };
 
   useEffect(() => {
     if (!orderId) return;
@@ -76,6 +124,19 @@ export default function OrderDetail() {
           <span style={{ fontWeight: 700 }}>{(order.orderId ?? order.id ?? '').replace(/^FM-/, '')}</span>
           <StageBadge stage={order.stage ?? 0} />
         </div>
+        {(order.stage === 0 || order.stage === 1 || order.stage === 2 || order.stage === -1) && (
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+            {(order.stage === 0 || order.stage === -1) && (
+              <button className="btn btn-success" disabled={processing} onClick={() => setConfirm('accept')}>✅ Accept Order</button>
+            )}
+            {(order.stage === 1 || order.stage === 2) && (
+              <button className="btn btn-primary" disabled={processing} onClick={() => setConfirm('deliver')}>🏁 Close Delivery (no OTP)</button>
+            )}
+            {(order.stage === 0 || order.stage === 1 || order.stage === 2) && (
+              <button className="btn btn-danger" disabled={processing} onClick={() => setConfirm('reject')}>🚫 Reject Order</button>
+            )}
+          </div>
+        )}
         <Row label="Order ID" value={(order.orderId ?? order.id ?? '').replace(/^FM-/, '')} />
         <Row label="Category" value={`${order.orderCategoryLabel ?? 'GENERAL'} (${order.orderCategory ?? 'general'})`} />
         <Row label="Status" value={order.status || '—'} />
@@ -106,7 +167,7 @@ export default function OrderDetail() {
       </Card>
 
       <Card title="Customer Information">
-        <Row label="Name" value={order.customerName || '—'} />
+        <Row label="Name" value={order ? freshName(names, order.customerPhone, order.customerName) : '—'} />
         <Row label="Phone" value={order.customerPhone || '—'} />
         <Row label="Address" value={order.address || '—'} />
       </Card>
@@ -147,6 +208,8 @@ export default function OrderDetail() {
         )}
       </Card>
 
+      <CallLogsPlayer orderId={order.id} />
+
       <Card title="Payment & Charges">
         <Row label="Total Amount" value={`₹${(order.totalAmount ?? 0).toLocaleString('en-IN')}`} />
         <Row label="Delivery Fee" value={`₹${order.deliveryFee ?? 0}`} />
@@ -156,6 +219,21 @@ export default function OrderDetail() {
         <Row label="Payment Status" value={order.paymentStatus ?? '—'} />
         {order.specialInstructions && <Row label="Instructions" value={order.specialInstructions} />}
       </Card>
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm === 'accept' ? 'Accept this order?' : confirm === 'deliver' ? 'Close delivery without OTP?' : 'Reject this order?'}
+        message={confirm === 'accept'
+          ? 'This order will move to ACCEPTED. Use this to accept a new order, or to re-accept a previously rejected one.'
+          : confirm === 'deliver'
+            ? 'This active delivery will be marked DELIVERED immediately — no customer OTP required. The rider app will stop tracking it.'
+            : 'This order will move to CANCELLED / REJECTED. Use this to reject a new order, or to reject a previously accepted one.'}
+        confirmLabel={confirm === 'accept' ? 'Accept Order' : confirm === 'deliver' ? 'Close Delivery' : 'Reject Order'}
+        confirmColor={confirm === 'accept' ? '#059669' : confirm === 'deliver' ? '#F15A24' : '#DC2626'}
+        onConfirm={handleOrderAction}
+        onCancel={() => setConfirm(null)}
+      />
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }

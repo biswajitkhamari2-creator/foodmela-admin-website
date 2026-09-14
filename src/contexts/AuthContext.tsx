@@ -3,8 +3,14 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } fr
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
-const ADMIN_EMAIL = 'admin@foodmela.com';
-const ADMIN_PIN = 'Bisu@1234';
+// ── Admin identity comes from env, never hardcoded ─────────────────────────
+// VITE_ADMIN_EMAIL: the Firebase Auth email that counts as admin fallback.
+// VITE_DEV_ADMIN_BYPASS=true (+ VITE_DEV_ADMIN_PIN): local-only emergency
+// login when Firebase Auth isn't configured. NEVER enable in production —
+// anyone reading the JS bundle could sign in as admin.
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL as string | undefined) ?? 'admin@foodmela.com';
+const DEV_BYPASS_ENABLED = (import.meta.env.VITE_DEV_ADMIN_BYPASS as string | undefined) === 'true';
+const DEV_ADMIN_PIN = import.meta.env.VITE_DEV_ADMIN_PIN as string | undefined;
 
 interface AuthState {
   user: User | null;
@@ -27,14 +33,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const localAdmin = localStorage.getItem('fm_admin_local');
-    if (localAdmin === 'true') {
+    // Dev bypass session only counts when the flag is on — otherwise a stale
+    // localStorage value from an old dev build could skip login in prod.
+    if (DEV_BYPASS_ENABLED && localStorage.getItem('fm_admin_local') === 'true') {
       setIsAdmin(true);
       setIsLocalAdmin(true);
       setAdminName('Admin');
       setLoading(false);
       return;
     }
+    localStorage.removeItem('fm_admin_local');
 
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -71,8 +79,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    // ✅ Hardcoded admin — instant login even if Firebase Auth is not configured
-    if (email === ADMIN_EMAIL && password === ADMIN_PIN) {
+    // Dev-only emergency bypass — requires VITE_DEV_ADMIN_BYPASS=true in .env.local.
+    // Never set that flag in production builds.
+    if (DEV_BYPASS_ENABLED && DEV_ADMIN_PIN && email === ADMIN_EMAIL && password === DEV_ADMIN_PIN) {
       localStorage.setItem('fm_admin_local', 'true');
       setIsAdmin(true);
       setIsLocalAdmin(true);

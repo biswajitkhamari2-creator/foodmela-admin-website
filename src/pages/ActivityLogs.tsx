@@ -13,6 +13,15 @@ const actionLabels: Record<string, string> = {
   partnerRejected: 'Partner Rejected',
   partnerBlocked: 'Partner Blocked',
   partnerUnblocked: 'Partner Unblocked',
+  orderAccepted: 'Order Accepted',
+  orderRejected: 'Order Rejected',
+  orderDeliveredNoOtp: 'Delivery Closed (no OTP)',
+  productPriceUpdated: 'Price Updated',
+  bannerCreated: 'Banner Created',
+  bannerUpdated: 'Banner Updated',
+  bannerEnabled: 'Banner Enabled',
+  bannerDisabled: 'Banner Disabled',
+  bannerDeleted: 'Banner Deleted',
 };
 
 export default function ActivityLogs() {

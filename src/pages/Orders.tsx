@@ -1,15 +1,19 @@
 import { useEffect, useState, useMemo } from 'react';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { tsToDate, fmtDateTime } from '../utils/helpers';
-import { StageBadge, EmptyState, Pagination } from '../components/UI';
+import { StageBadge, EmptyState, Pagination, ConfirmDialog, Toast } from '../components/UI';
 import type { OrderRecord } from '../types';
+import { useCustomerNames, freshName } from '../hooks/useCustomerNames';
 
 const PAGE_SIZE = 20;
 
 export default function Orders({ globalSearch }: { globalSearch?: string }) {
   const nav = useNavigate();
+  const { user, adminName } = useAuth();
+  const names = useCustomerNames();
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -18,6 +22,9 @@ export default function Orders({ globalSearch }: { globalSearch?: string }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
+  const [confirm, setConfirm] = useState<{ docId: string; label: string; action: 'accept' | 'reject' | 'deliver' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(200));
@@ -57,6 +64,46 @@ export default function Orders({ globalSearch }: { globalSearch?: string }) {
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   useEffect(() => { setPage(1); }, [search, globalSearch, stageFilter, categoryFilter, dateFrom, dateTo]);
+
+  const handleOrderAction = async () => {
+    if (!confirm) return;
+    setProcessing(true);
+    try {
+      const isAccept = confirm.action === 'accept';
+      const isDeliver = confirm.action === 'deliver';
+      await updateDoc(doc(db, 'orders', confirm.docId), isAccept ? {
+        stage: 1,
+        status: 'Accepted by Admin ✅',
+        acceptedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      } : isDeliver ? {
+        stage: 3,
+        status: 'Delivered by Admin 🏁 (no OTP)',
+        deliveredAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      } : {
+        stage: -1,
+        status: 'Rejected by Admin 🚨',
+        cancelledAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      await addDoc(collection(db, 'admin_audit_logs'), {
+        adminPhone: user?.uid ?? 'admin',
+        adminName: adminName || 'Admin',
+        action: isAccept ? 'orderAccepted' : isDeliver ? 'orderDeliveredNoOtp' : 'orderRejected',
+        targetId: confirm.label,
+        targetType: 'order',
+        metadata: { docId: confirm.docId },
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+      setToast({ message: isAccept ? `Order ${confirm.label} accepted ✅` : isDeliver ? `Order ${confirm.label} delivered — no OTP 🏁` : `Order ${confirm.label} rejected`, type: 'success' });
+    } catch (e: unknown) {
+      setToast({ message: e instanceof Error ? e.message : 'Action failed', type: 'error' });
+    }
+    setProcessing(false);
+    setConfirm(null);
+  };
 
   if (loading) return <div className="page"><div className="skeleton" style={{ height: 400 }} /></div>;
   if (orders.length === 0) return <div className="page"><EmptyState icon="🧾" title="No orders yet" subtitle="Orders will appear here as customers place them." /></div>;
@@ -105,32 +152,69 @@ export default function Orders({ globalSearch }: { globalSearch?: string }) {
                   <th>Status</th>
                   <th>Partner</th>
                   <th>Created</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {paged.map((o) => (
+                {paged.map((o) => {
+                  const stage = o.stage ?? 0;
+                  const docId = o.id;
+                  const label = (o.orderId ?? o.id ?? '').replace(/^FM-/, '');
+                  const actionable = stage === 0 || stage === 1 || stage === 2 || stage === -1;
+                  return (
                   <tr key={o.id} className="clickable" onClick={() => nav(`/orders/${o.orderId ?? o.id}`)}>
-                    <td><span className="order-id">{(o.orderId ?? o.id ?? '').replace(/^FM-/, '')}</span></td>
+                    <td><span className="order-id">{label}</span></td>
                     <td>
-                      <div className="cell-main">{o.customerName || '—'}</div>
+                      <div className="cell-main">{freshName(names, o.customerPhone, o.customerName)}</div>
                       <div className="cell-sub">{o.customerPhone || ''}</div>
                     </td>
                     <td>{o.orderCategoryLabel || 'GENERAL'}</td>
                     <td><strong>₹{(o.totalAmount ?? 0).toLocaleString('en-IN')}</strong></td>
-                    <td><StageBadge stage={o.stage ?? 0} /></td>
+                    <td><StageBadge stage={stage} /></td>
                     <td>
                       <div className="cell-main">{o.riderName || '—'}</div>
                       <div className="cell-sub">{(o.riderId || '').replace(/^FM-/, '')}</div>
                     </td>
                     <td className="cell-sub">{fmtDateTime(tsToDate(o.createdAt))}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {actionable ? (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {(stage === 0 || stage === -1) && (
+                            <button className="btn btn-sm btn-success" disabled={processing} onClick={() => setConfirm({ docId, label, action: 'accept' })}>Accept</button>
+                          )}
+                          {(stage === 1 || stage === 2) && (
+                            <button className="btn btn-sm btn-primary" disabled={processing} onClick={() => setConfirm({ docId, label, action: 'deliver' })}>Close (no OTP)</button>
+                          )}
+                          {(stage === 0 || stage === 1 || stage === 2) && (
+                            <button className="btn btn-sm btn-danger" disabled={processing} onClick={() => setConfirm({ docId, label, action: 'reject' })}>Reject</button>
+                          )}
+                        </div>
+                      ) : <span className="muted">—</span>}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </>
       )}
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.action === 'accept' ? `Accept order ${confirm?.label}?` : confirm?.action === 'deliver' ? `Close delivery ${confirm?.label} without OTP?` : `Reject order ${confirm?.label}?`}
+        message={confirm?.action === 'accept'
+          ? 'This order will move to ACCEPTED. Use this to accept a new order, or to re-accept a previously rejected one.'
+          : confirm?.action === 'deliver'
+            ? 'This active delivery will be marked DELIVERED immediately — no customer OTP required. The rider app will stop tracking it.'
+            : 'This order will move to CANCELLED / REJECTED. Use this to reject a new order, or to reject a previously accepted one.'}
+        confirmLabel={confirm?.action === 'accept' ? 'Accept Order' : confirm?.action === 'deliver' ? 'Close Delivery' : 'Reject Order'}
+        confirmColor={confirm?.action === 'accept' ? '#059669' : confirm?.action === 'deliver' ? '#F15A24' : '#DC2626'}
+        onConfirm={handleOrderAction}
+        onCancel={() => setConfirm(null)}
+      />
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }

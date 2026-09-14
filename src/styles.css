@@ -385,6 +385,35 @@ a { color: inherit; }
 
 /* ─── PAGE ───────────────────────────────────────────────────────────────── */
 .page { display: flex; flex-direction: column; gap: 20px; }
+.page-enter { animation: pageIn 0.28s cubic-bezier(0.16,1,0.3,1); }
+@keyframes pageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .page-enter { animation: none; } }
+
+/* ─── TOPBAR EXTRAS — PREMIUM ────────────────────────────────────────────── */
+.topbar-clock {
+  font-size: 12px; font-weight: 700; color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  padding: 7px 12px; border-radius: 20px;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.search-clear {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-faint); font-size: 12px;
+  padding: 2px 6px; border-radius: 6px; flex-shrink: 0;
+}
+.search-clear:hover { color: var(--text); background: var(--border-light); }
+.search-hint {
+  font-size: 11px; font-weight: 700; color: var(--text-faint);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 6px; padding: 1px 7px; flex-shrink: 0;
+  font-family: inherit;
+}
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+.nav-item:focus-visible, .btn:focus-visible, .chip:focus-visible { outline-offset: 1px; }
 .section-title {
   font-size: 11px; font-weight: 700; color: var(--text-muted);
   letter-spacing: 1px; text-transform: uppercase; margin-top: 4px;
@@ -730,15 +759,23 @@ a { color: inherit; }
   backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
   z-index: 100; padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .dialog {
   background: var(--surface);
   border-radius: var(--radius-xl);
   padding: 28px;
   width: 100%; max-width: 440px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   box-shadow: var(--shadow-xl);
   border: 1px solid var(--border);
   animation: dialogIn 0.25s cubic-bezier(0.4,0,0.2,1);
+  margin: auto;
 }
 @keyframes dialogIn { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 .dialog h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; color: var(--text); letter-spacing: -0.02em; }
@@ -1127,3 +1164,45 @@ a { color: inherit; }
   .topbar { padding: 12px 14px; }
   .dash-kpis { gap: 12px; }
 }
+
+/* ─── CALL RECORDINGS TAB — PREMIUM ────────────────────────────────────────── */
+.calls-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
+.call-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+  position: relative; overflow: hidden;
+}
+.call-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #7C3AED 0%, #A78BFA 100%);
+  opacity: 0; transition: opacity 0.2s;
+}
+.call-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); border-color: var(--border-strong); }
+.call-card:hover::before { opacity: 1; }
+.call-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.call-parties { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.call-party { background: var(--bg-subtle); border: 1px solid var(--border-light); padding: 4px 10px; border-radius: 8px; }
+.call-arrow { color: var(--text-faint); font-weight: 400; }
+.call-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.call-player-wrap { display: flex; flex-direction: column; gap: 8px; }
+.call-player-wrap .call-audio { margin-top: 0; }
+.call-player-wrap .btn { align-self: flex-end; }
+@media (max-width: 600px) { .calls-grid { grid-template-columns: 1fr; } }
+
+/* ─── CALL RECORDINGS PLAYER ─────────────────────────────────────────────── */
+.call-log-list { display: flex; flex-direction: column; gap: 12px; }
+.call-log-row {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.call-log-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12.5px; }
+.call-status-pill { font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+.call-log-time { font-size: 11px; color: var(--text-muted); font-weight: 500; margin-top: 4px; }
+.call-audio { width: 100%; margin-top: 10px; height: 36px; }
+.call-no-recording { font-size: 12px; color: #92400E; font-weight: 600; margin: 8px 0 0; }

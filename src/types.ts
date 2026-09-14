@@ -16,6 +16,8 @@ export interface UserRecord {
   createdAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
   approvedAt?: Timestamp | null;
+  /** Present when the row is derived from order history (no users doc yet). */
+  source?: 'users' | 'orders';
 }
 
 export interface OrderRecord {

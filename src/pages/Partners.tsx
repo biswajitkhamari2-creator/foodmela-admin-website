@@ -3,7 +3,13 @@ import { collection, query, where, onSnapshot, doc, updateDoc, setDoc, serverTim
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { initializeApp, getApps, deleteApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { auth, db } from '../firebase';
+import { db, firebaseConfig as FIREBASE_CONFIG } from '../firebase';
+
+// Same-domain backend: foodmela.online/api in production, VITE_BACKEND_URL
+// override for local dev, legacy vercel.app URL as last resort.
+const BACKEND_BASE =
+  (import.meta.env.VITE_BACKEND_URL as string | undefined)?.replace(/\/$/, '')
+  ?? (import.meta.env.PROD ? '' : 'https://food-mela-backend.vercel.app');
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, ConfirmDialog, Toast, Pagination } from '../components/UI';
 import type { UserRecord } from '../types';
@@ -19,15 +25,6 @@ function genPasswordFromNamePhone(name: string, phone: string): string {
   const sym = syms[Math.floor(Math.random() * syms.length)];
   return `${base}${sym}${digits}${rand}`;
 }
-
-const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyCGj-c4WU6PwCF9s0Z6k3xT6dbA6yqdKEQ',
-  authDomain: 'food-mela-notification.firebaseapp.com',
-  projectId: 'food-mela-notification',
-  storageBucket: 'food-mela-notification.firebasestorage.app',
-  messagingSenderId: '623657462795',
-  appId: '1:623657462795:web:26da5491d2c14a671fab0e',
-};
 
 const PAGE_SIZE = 20;
 
@@ -172,6 +169,10 @@ export default function Partners({ globalSearch }: { globalSearch?: string }) {
     setAdding(false);
   };
 
+  // ── Admin password reset via backend (Admin SDK) ─────────────────────
+  // The web client SDK cannot change ANOTHER user's password — only the
+  // backend (firebase-admin) can. This calls POST /api/admin/riders/reset-password
+  // with the admin's own ID token; the backend verifies admin + sets it.
   const handleResetPassword = async () => {
     if (!pwdTarget || !pwdValue.trim()) { setToast('Please enter a new password'); return; }
     if (pwdValue.length < 6) { setToast('Password must be at least 6 characters'); return; }
@@ -180,26 +181,16 @@ export default function Partners({ globalSearch }: { globalSearch?: string }) {
     setPwdLoading(true);
     const newPassword = pwdValue; // capture before clearing
     try {
-      // Try to create or update Firebase Auth user
-      // We use a secondary approach: createUser or update via Admin SDK would be ideal,
-      // but on client we create the Auth user if not exists
-      try {
-        await createUserWithEmailAndPassword(auth, email, newPassword);
-      } catch (authErr: unknown) {
-        const code = (authErr as { code?: string })?.code ?? '';
-        if (code === 'auth/email-already-in-use') {
-          // User exists — we need to update password
-          // Client SDK cannot update another user's password directly
-          // So we store a flag and the rider will use the new password on next login
-          // The actual password update happens via Firebase Admin SDK or by the rider re-authenticating
-          // For now, we mark password as configured and log the reset
-          // The admin should use Firebase Console or Admin SDK for existing users
-          setToast('Account already exists. Use Firebase Console → Authentication → Reset password for existing riders, or the rider can use the new password if re-created.');
-          setPwdLoading(false);
-          return;
-        } else {
-          throw authErr;
-        }
+      const idToken = await user?.getIdToken(true);
+      if (!idToken) throw new Error('Admin session expired — please log in again');
+      const resp = await fetch(`${BACKEND_BASE}/api/admin/riders/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ email, newPassword }),
+      });
+      const data = (await resp.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!resp.ok || !data.success) {
+        throw new Error(data.error === 'admin only' ? 'Admin verification failed — please log in again' : (data.error || 'Reset failed'));
       }
 
       // Mark password as configured in Firestore (never store the password itself)
@@ -213,7 +204,7 @@ export default function Partners({ globalSearch }: { globalSearch?: string }) {
         metadata: { partnerId: (pwdTarget as unknown as Record<string, unknown>).partnerId ?? '' },
         timestamp: serverTimestamp(), createdAt: serverTimestamp(),
       });
-      setToast('Password set successfully');
+      setToast(`Password updated for ${pwdTarget.name || email} — share it with the rider`);
       // Clear password from UI immediately — never retain
       setPwdValue('');
       setPwdShow(false);
@@ -268,7 +259,12 @@ export default function Partners({ globalSearch }: { globalSearch?: string }) {
                       <td>{p.id}</td>
                       <td><span className={`badge ${p.approvalStatus === 'pending' ? 'badge-pending' : p.approvalStatus === 'approved' ? 'badge-active' : 'badge-blocked'}`}>{(p.approvalStatus ?? 'approved').toUpperCase()}</span></td>
                       <td><span className={`badge ${blocked ? 'badge-blocked' : 'badge-active'}`}>{blocked ? 'BLOCKED' : 'ACTIVE'}</span></td>
-                      <td>{pending ? <span className="muted">—</span> : <button className={`btn btn-sm ${blocked ? 'btn-success' : 'btn-danger'}`} onClick={() => setConfirm({ id: p.id, blocked })}>{blocked ? 'Unblock' : 'Block'}</button>}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button className="btn btn-sm btn-ghost" title="Set / reset rider app password" onClick={() => { setPwdTarget(p); setPwdValue(''); setPwdShow(false); }}>🔑 Reset</button>
+                          {pending ? <span className="muted">—</span> : <button className={`btn btn-sm ${blocked ? 'btn-success' : 'btn-danger'}`} onClick={() => setConfirm({ id: p.id, blocked })}>{blocked ? 'Unblock' : 'Block'}</button>}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -280,6 +276,38 @@ export default function Partners({ globalSearch }: { globalSearch?: string }) {
       )}
 
       <ConfirmDialog open={!!confirm} title={confirm?.blocked ? 'Unblock partner?' : 'Block partner?'} message={confirm?.blocked ? 'Partner will be able to receive new orders again.' : 'Partner will NOT receive new orders and cannot accept orders. Existing history remains.'} confirmLabel={confirm?.blocked ? 'Unblock' : 'Block'} confirmColor={confirm?.blocked ? '#059669' : '#DC2626'} onConfirm={handleToggle} onCancel={() => setConfirm(null)} />
+
+      {/* ── Reset rider password dialog ────────────────────────────────── */}
+      {pwdTarget && (
+        <div className="dialog-overlay" onClick={() => { setPwdTarget(null); setPwdValue(''); }}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>🔑 Reset password — {pwdTarget.name || pwdTarget.email || pwdTarget.id}</h3>
+            <p className="muted" style={{ fontSize: 12 }}>
+              Sets a new rider-app password for <strong>{(pwdTarget.email ?? '').toLowerCase() || 'this partner'}</strong>.
+              The rider logs in with the new password immediately. Share it with them over call/SMS — it is never stored.
+            </p>
+            <div className="form-group">
+              <label>New password (min 6 characters)</label>
+              <input
+                type={pwdShow ? 'text' : 'password'}
+                value={pwdValue}
+                onChange={(e) => setPwdValue(e.target.value)}
+                placeholder="Enter new password"
+                autoComplete="new-password"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleResetPassword(); }}
+              />
+            </div>
+            <div className="dialog-actions">
+              <button className="btn btn-ghost btn-sm" onClick={() => setPwdShow(!pwdShow)}>{pwdShow ? 'Hide' : 'Show'}</button>
+              <span style={{ flex: 1 }} />
+              <button className="btn btn-ghost" onClick={() => { setPwdTarget(null); setPwdValue(''); }}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleResetPassword} disabled={pwdLoading}>
+                {pwdLoading ? 'Setting…' : 'Set Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAdd && (() => {
         const initials = (() => {
