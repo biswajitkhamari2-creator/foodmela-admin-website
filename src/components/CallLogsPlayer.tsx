@@ -25,7 +25,50 @@ export interface CallLog {
   status: string;
   duration: number;
   recordingUrl: string | null;
+  /** Backend-signed playback path (works with the private GCS bucket). */
+  playbackUrl?: string | null;
   createdAt: string | null;
+}
+
+function PlayableRecording({ log }: { log: CallLog }) {
+  const [src, setSrc] = useState<string | null>(log.recordingUrl);
+  const [triedSigned, setTriedSigned] = useState(false);
+
+  // Prefer the backend-signed URL (private bucket); fall back to direct URL.
+  useEffect(() => {
+    if (!log.playbackUrl || triedSigned) return;
+    let cancelled = false;
+    fetch(`${BACKEND_BASE}${log.playbackUrl}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { url?: string }) => {
+        if (!cancelled && typeof data.url === 'string') {
+          setSrc(data.url);
+          setTriedSigned(true);
+        }
+      })
+      .catch(() => {
+        // Signed URL unavailable (storage keys missing?) — keep direct URL.
+        if (!cancelled) setTriedSigned(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [log.playbackUrl, triedSigned]);
+
+  if (!src) return null;
+  return (
+    <audio
+      controls
+      preload="none"
+      src={src}
+      className="call-audio"
+      onError={() => {
+        // Direct GCS URL 403s on the private bucket — try the signed URL.
+        if (log.playbackUrl && !triedSigned) setTriedSigned(false);
+        else if (src !== log.recordingUrl) setSrc(log.recordingUrl);
+      }}
+    />
+  );
 }
 
 function fmtDuration(s: number): string {
@@ -153,7 +196,7 @@ export default function CallLogsPlayer({ orderId }: { orderId: string }) {
                 {log.createdAt ? fmtDateTime(new Date(log.createdAt)) : '—'}
               </div>
               {log.recordingUrl ? (
-                <audio controls preload="none" src={log.recordingUrl} className="call-audio" />
+                <PlayableRecording log={log} />
               ) : (
                 <p className="call-no-recording">
                   {log.status === 'ringing'
@@ -185,6 +228,7 @@ function normalizeBackend(list: unknown[]): CallLog[] {
       status: String(v.status ?? 'ringing'),
       duration: Number(v.duration ?? 0),
       recordingUrl: (v.recordingUrl as string) ?? null,
+      playbackUrl: (v.playbackUrl as string) ?? null,
       createdAt:
         typeof v.createdAt === 'string'
           ? v.createdAt
