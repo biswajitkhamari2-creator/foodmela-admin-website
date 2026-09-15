@@ -42,6 +42,7 @@ export function ConfirmDialog({
   confirmColor = '#DC2626',
   onConfirm,
   onCancel,
+  children,
 }: {
   open: boolean;
   title: string;
@@ -50,6 +51,7 @@ export function ConfirmDialog({
   confirmColor?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  children?: React.ReactNode;
 }) {
   if (!open) return null;
   return (
@@ -57,6 +59,7 @@ export function ConfirmDialog({
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
         <h3>{title}</h3>
         <p>{message}</p>
+        {children}
         <div className="dialog-actions">
           <button className="btn btn-ghost" onClick={onCancel}>
             Cancel

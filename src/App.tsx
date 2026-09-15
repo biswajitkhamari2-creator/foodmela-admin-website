@@ -14,6 +14,7 @@ import Customers from './pages/Customers';
 import Partners from './pages/Partners';
 import Approvals from './pages/Approvals';
 import Earnings from './pages/Earnings';
+import Withdrawals from './pages/Withdrawals';
 import Analytics from './pages/Analytics';
 import ActivityLogs from './pages/ActivityLogs';
 import CallRecordings from './pages/CallRecordings';
@@ -71,6 +72,7 @@ function AdminLayout() {
     '/partners': { title: 'Delivery Partners', subtitle: 'Partner management' },
     '/approvals': { title: 'Pending Approvals', subtitle: 'New delivery partners awaiting review' },
     '/earnings': { title: 'Earnings', subtitle: 'Delivery earnings — credited only after successful delivery' },
+    '/withdrawals': { title: 'Withdrawals', subtitle: 'Rider payout requests — approve after paying' },
     '/analytics': { title: 'Analytics', subtitle: 'Performance insights' },
     '/calls': { title: 'Call Recordings', subtitle: 'Customer ↔ rider VoIP captures — numbers stay hidden' },
     '/logs': { title: 'Admin Audit Logs', subtitle: 'All administrative actions — immutable record' },
@@ -126,6 +128,7 @@ function AdminLayout() {
             <Route path="/partners" element={<Partners globalSearch={globalSearch} />} />
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/earnings" element={<Earnings />} />
+            <Route path="/withdrawals" element={<Withdrawals />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/calls" element={<CallRecordings globalSearch={globalSearch} />} />
             <Route path="/logs" element={<ActivityLogs />} />

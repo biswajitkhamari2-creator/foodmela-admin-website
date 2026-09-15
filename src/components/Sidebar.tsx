@@ -9,6 +9,7 @@ const navItems = [
   { to: '/partners', label: 'Delivery Partners', icon: '🛵' },
   { to: '/approvals', label: 'Pending Approvals', icon: '⏳' },
   { to: '/earnings', label: 'Earnings', icon: '💰' },
+  { to: '/withdrawals', label: 'Withdrawals', icon: '💸' },
   { to: '/analytics', label: 'Analytics', icon: '📊' },
   { to: '/calls', label: 'Call Recordings', icon: '🎙️' },
   { to: '/logs', label: 'Activity Logs', icon: '📜' },
