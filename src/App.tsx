@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import OrderDetail from './pages/OrderDetail';
+import Invoices from './pages/Invoices';
 import Products from './pages/Products';
 import Banners from './pages/Banners';
 import Customers from './pages/Customers';
@@ -66,6 +67,7 @@ function AdminLayout() {
   const titles: Record<string, { title: string; subtitle: string }> = {
     '/': { title: 'Dashboard', subtitle: 'Real-time operations overview' },
     '/orders': { title: 'Orders', subtitle: 'Orders overview' },
+    '/invoices': { title: 'Invoices', subtitle: 'Billing tracking — collected, pending, COD vs prepaid' },
     '/products': { title: 'Product Prices', subtitle: 'Dynamic pricing — updates the customer app on refresh' },
     '/banners': { title: 'Festival Banners', subtitle: 'Home-screen campaigns — no app update needed' },
     '/customers': { title: 'Customers', subtitle: 'Customer management' },
@@ -122,6 +124,7 @@ function AdminLayout() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/orders" element={<Orders globalSearch={globalSearch} />} />
             <Route path="/orders/:orderId" element={<OrderDetail />} />
+            <Route path="/invoices" element={<Invoices globalSearch={globalSearch} />} />
             <Route path="/products" element={<Products globalSearch={globalSearch} />} />
             <Route path="/banners" element={<Banners globalSearch={globalSearch} />} />
             <Route path="/customers" element={<Customers globalSearch={globalSearch} />} />

@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '◧' },
   { to: '/orders', label: 'Orders', icon: '🧾' },
+  { to: '/invoices', label: 'Invoices', icon: '🧮' },
   { to: '/products', label: 'Prices', icon: '🏷️' },
   { to: '/banners', label: 'Banners', icon: '🎉' },
   { to: '/customers', label: 'Customers', icon: '👥' },
@@ -52,7 +53,7 @@ export default function Sidebar({
           </NavLink>
         ))}
         {!collapsed && <div className="nav-section">OPERATIONS</div>}
-        {navItems.slice(1, 8).map((item) => (
+        {navItems.slice(1, 9).map((item) => (
           <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">{item.icon}</span>
             {!collapsed && <span className="nav-label">{item.label}</span>}
@@ -62,7 +63,7 @@ export default function Sidebar({
           </NavLink>
         ))}
         {!collapsed && <div className="nav-section">SYSTEM</div>}
-        {navItems.slice(8).map((item) => (
+        {navItems.slice(9).map((item) => (
           <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">{item.icon}</span>
             {!collapsed && <span className="nav-label">{item.label}</span>}
