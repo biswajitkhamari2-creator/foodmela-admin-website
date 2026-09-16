@@ -43,6 +43,7 @@ interface PriceRow {
   price?: number;
   mrp?: number;
   name?: string;
+  image?: string;
 }
 
 interface CustomRow {
@@ -70,6 +71,8 @@ interface Editing {
   name: string;
   price: string;
   mrp: string;
+  image: string;
+  aiPrompt: string;
 }
 
 const emptyItemForm = {
@@ -162,7 +165,11 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       name: c.name,
       price: String(o?.price ?? c.basePrice),
       mrp: o?.mrp ? String(o.mrp) : '',
+      image: o?.image ?? '',
+      aiPrompt: '',
     });
+    setAiPreview('');
+    setAiOk(false);
   };
 
   const handleSave = async () => {
@@ -184,12 +191,15 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
     }
     setSaving(true);
     try {
+      const img = editing.image.trim();
       const payload: Record<string, unknown> = {
         price,
         name: editing.name,
         updatedAt: serverTimestamp(),
       };
       if (mrp !== null) payload.mrp = mrp;
+      // Image override: non-empty URL saves, empty string CLEARS it (back to bundled photo).
+      payload.image = img;
       await setDoc(doc(db, 'product_prices', editing.id), payload, { merge: true });
       await addDoc(collection(db, 'admin_audit_logs'), {
         adminPhone: user?.uid ?? 'admin',
@@ -197,14 +207,14 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         action: 'productPriceUpdated',
         targetId: editing.id,
         targetType: 'product',
-        metadata: { name: editing.name, price, ...(mrp !== null ? { mrp } : {}) },
+        metadata: { name: editing.name, price, ...(mrp !== null ? { mrp } : {}), ...(img ? { image: 'updated' } : { imageCleared: true }) },
         timestamp: serverTimestamp(),
         createdAt: serverTimestamp(),
       });
       setToast({
         message: mrp !== null
-          ? `${editing.name}: ₹${mrp} → ₹${price} ✅`
-          : `${editing.name}: ₹${price} ✅`,
+          ? `${editing.name}: ₹${mrp} → ₹${price}${img ? ' + 📸' : ''} ✅`
+          : `${editing.name}: ₹${price}${img ? ' + 📸' : ''} ✅`,
         type: 'success',
       });
     } catch (e: unknown) {
@@ -241,8 +251,9 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
     setAiOk(false);
   };
 
+  // Photo upload works for BOTH dialogs: bundled price-edit (editing) + custom item (form).
   const handlePhotoFile = async (file: File) => {
-    if (!form) return;
+    if (!form && !editing) return;
     if (!imgbbKey.trim()) {
       setToast({ message: 'Pehle ImgBB API key dalo (free — imgbb.com par banao)', type: 'error' });
       return;
@@ -256,7 +267,8 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         r.readAsDataURL(file);
       });
       const url = await uploadToImgBB(dataUrl, imgbbKey.trim());
-      setForm({ ...form, image: url });
+      if (form) setForm({ ...form, image: url });
+      else if (editing) setEditing({ ...editing, image: url });
       setToast({ message: 'Photo uploaded ✅', type: 'success' });
     } catch (e: unknown) {
       setToast({ message: e instanceof Error ? e.message : 'Upload failed', type: 'error' });
@@ -265,13 +277,14 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
   };
 
   const handleAiPhoto = async () => {
-    if (!form || !form.aiPrompt.trim()) {
+    const prompt = form ? form.aiPrompt.trim() : editing ? editing.aiPrompt.trim() : '';
+    if (!prompt) {
       setToast({ message: 'Pehle AI prompt likho (e.g. crispy masala dosa)', type: 'error' });
       return;
     }
     setAiLoading(true);
     setAiOk(false);
-    const url = pollinationsFoodUrl(form.aiPrompt.trim(), Date.now() % 1000000);
+    const url = pollinationsFoodUrl(prompt, Date.now() % 1000000);
     const ok = await preloadImage(url, 90000);
     if (ok) {
       setAiPreview(url);
@@ -280,6 +293,13 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       setToast({ message: 'AI photo load nahi hui — dobara try karo', type: 'error' });
     }
     setAiLoading(false);
+  };
+
+  const useAiPreviewPhoto = () => {
+    if (!aiPreview) return;
+    if (form) setForm({ ...form, image: aiPreview });
+    else if (editing) setEditing({ ...editing, image: aiPreview });
+    setToast({ message: 'AI photo lag gayi ✅', type: 'success' });
   };
 
   const handleSaveItem = async () => {
@@ -443,11 +463,21 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                   const price = o?.price ?? c.basePrice;
                   const mrp = o?.mrp;
                   const hasOverride = o !== undefined;
+                  const customImg = o?.image?.trim() ? o.image : '';
                   return (
                     <tr key={c.id}>
                       <td>
-                        <div className="cell-main">{c.name}</div>
-                        <div className="cell-sub">{hasOverride ? '✏️ Custom price' : 'Bundled price'}</div>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          {customImg ? (
+                            <img src={customImg} alt="" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 10 }} loading="lazy" />
+                          ) : (
+                            <div style={{ width: 52, height: 52, borderRadius: 10, background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🍽️</div>
+                          )}
+                          <div>
+                            <div className="cell-main">{c.name}</div>
+                            <div className="cell-sub">{customImg ? '📸 Custom photo' : hasOverride ? '✏️ Custom price' : 'Bundled price'}</div>
+                          </div>
+                        </div>
                       </td>
                       <td>{c.categoryLabel}</td>
                       <td>
@@ -457,7 +487,9 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                         )}
                       </td>
                       <td>
-                        <button className="btn btn-sm btn-ghost" onClick={() => openEdit(c)}>Edit price</button>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button className="btn btn-sm btn-ghost" onClick={() => openEdit(c)}>Edit price + photo</button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -516,9 +548,9 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
 
       {editing && (
         <div className="dialog-overlay" onClick={() => setEditing(null)}>
-          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <h3>{editing.name}</h3>
-            <p>Changing this price updates the customer app after refresh — no app update needed.</p>
+            <p>Price + photo change updates the customer app + website instantly (live listener) — no app update needed.</p>
             <div className="form-group">
               <label>Selling price (₹)</label>
               <input
@@ -545,10 +577,57 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                 <strong>₹{editing.price}</strong>
               </p>
             )}
+
+            {/* ── PHOTO OVERRIDE ── */}
+            <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>📸 Item Photo (empty = bundled photo)</div>
+              <div className="form-group" style={{ marginBottom: 8 }}>
+                <label>ImgBB API key (free — imgbb.com → API, session me hi rehta hai)</label>
+                <input
+                  placeholder="paste key once per session"
+                  type="password"
+                  value={imgbbKey}
+                  onChange={(e) => { setImgbbKey(e.target.value); sessionStorage.setItem('imgbb_key', e.target.value); }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
+                  {uploading ? 'Uploading...' : '📤 Upload photo'}
+                  <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhotoFile(f); e.target.value = ''; }} />
+                </label>
+                {editing.image.trim() !== '' && (
+                  <button className="btn btn-sm btn-danger" onClick={() => setEditing({ ...editing, image: '' })}>
+                    🗑 Remove custom photo
+                  </button>
+                )}
+              </div>
+              <div className="form-group" style={{ marginBottom: 8 }}><label>…or paste image URL</label><input placeholder="https://..." value={editing.image} onChange={(e) => setEditing({ ...editing, image: e.target.value })} /></div>
+              <div className="form-group" style={{ marginBottom: 8 }}>
+                <label>…or describe for FREE AI photo</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input placeholder="e.g. crispy masala dosa with chutney" value={editing.aiPrompt} onChange={(e) => setEditing({ ...editing, aiPrompt: e.target.value })} style={{ flex: 1 }} />
+                  <button className="btn btn-sm btn-primary" disabled={aiLoading || !editing.aiPrompt.trim()} onClick={handleAiPhoto}>
+                    {aiLoading ? '...' : '✨ AI'}
+                  </button>
+                </div>
+              </div>
+              {aiPreview !== '' && aiOk && (
+                <div style={{ marginBottom: 8 }}>
+                  <img src={aiPreview} alt="AI preview" style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 10, display: 'block' }} />
+                  <button className="btn btn-sm btn-success" style={{ width: '100%', marginTop: 6 }} onClick={useAiPreviewPhoto}>
+                    ✅ Use this AI photo
+                  </button>
+                </div>
+              )}
+              {editing.image.trim() !== '' && (
+                <img src={editing.image.trim()} alt="preview" style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 10, display: 'block' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              )}
+            </div>
+
             <div className="dialog-actions">
               <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
-                {saving ? 'Saving...' : 'Save price'}
+              <button className="btn btn-primary" disabled={saving || uploading} onClick={handleSave}>
+                {saving ? 'Saving...' : 'Save price + photo'}
               </button>
             </div>
           </div>
