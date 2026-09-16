@@ -1,25 +1,20 @@
 import { useEffect, useState, useMemo } from 'react';
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, addDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, Toast, Pagination, ConfirmDialog } from '../components/UI';
 import { CATALOG, CATEGORY_LABELS, type CatalogItem } from '../data/catalog';
 
 const PAGE_SIZE = 20;
 
-// Free image hosting (no Firebase Storage / Blaze upgrade needed).
-// ImgBB key is entered by admin in the UI, kept in sessionStorage only.
-async function uploadToImgBB(dataUrl: string, apiKey: string): Promise<string> {
-  const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-  const body = new URLSearchParams();
-  body.set('key', apiKey);
-  body.set('image', base64);
-  const res = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body });
-  if (!res.ok) throw new Error(`ImgBB upload error ${res.status}`);
-  const data = (await res.json()) as { data?: { url?: string; display_url?: string }; error?: { message?: string } };
-  const url = data.data?.display_url ?? data.data?.url;
-  if (!url) throw new Error(data.error?.message ?? 'ImgBB returned no URL');
-  return url;
+// Product photo upload — Firebase Storage (product_images/), admin session.
+// No external API key needed; public read so app + website load it directly.
+async function uploadProductPhoto(file: File): Promise<string> {
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().slice(0, 4).replace(/[^a-z0-9]/g, '') || 'jpg';
+  const path = `product_images/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const snap = await uploadBytes(ref(storage, path), file, { contentType: file.type || 'image/jpeg' });
+  return getDownloadURL(snap.ref);
 }
 
 // FREE AI food photo — Pollinations, no key. Seed URLs are permanent.
@@ -111,8 +106,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
   const [form, setForm] = useState<typeof emptyItemForm | null>(null);
   const [formId, setFormId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<CustomRow | null>(null);
-  // ImgBB key (session only) + AI photo state
-  const [imgbbKey, setImgbbKey] = useState(() => sessionStorage.getItem('imgbb_key') ?? '');
+  // AI photo state
   const [uploading, setUploading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiPreview, setAiPreview] = useState('');
@@ -252,26 +246,32 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
   };
 
   // Photo upload works for BOTH dialogs: bundled price-edit (editing) + custom item (form).
+  // Direct to Firebase Storage — no API key, admin login is the auth.
   const handlePhotoFile = async (file: File) => {
     if (!form && !editing) return;
-    if (!imgbbKey.trim()) {
-      setToast({ message: 'Pehle ImgBB API key dalo (free — imgbb.com par banao)', type: 'error' });
+    if (!file.type.startsWith('image/')) {
+      setToast({ message: 'Sirf image file chuno (JPG/PNG)', type: 'error' });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setToast({ message: 'Photo 5MB se chhoti honi chahiye', type: 'error' });
       return;
     }
     setUploading(true);
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(String(r.result));
-        r.onerror = () => reject(new Error('File read failed'));
-        r.readAsDataURL(file);
-      });
-      const url = await uploadToImgBB(dataUrl, imgbbKey.trim());
+      const url = await uploadProductPhoto(file);
       if (form) setForm({ ...form, image: url });
       else if (editing) setEditing({ ...editing, image: url });
       setToast({ message: 'Photo uploaded ✅', type: 'success' });
     } catch (e: unknown) {
-      setToast({ message: e instanceof Error ? e.message : 'Upload failed', type: 'error' });
+      const msg = e instanceof Error ? e.message : 'Upload failed';
+      const denied = /permission|denied|unauthorized|insufficient/i.test(msg);
+      setToast({
+        message: denied
+          ? '❌ Upload denied — log OUT and log back IN as admin, then retry.'
+          : `❌ Upload failed: ${msg}`,
+        type: 'error',
+      });
     }
     setUploading(false);
   };
@@ -581,15 +581,6 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
             {/* ── PHOTO OVERRIDE ── */}
             <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>📸 Item Photo (empty = bundled photo)</div>
-              <div className="form-group" style={{ marginBottom: 8 }}>
-                <label>ImgBB API key (free — imgbb.com → API, session me hi rehta hai)</label>
-                <input
-                  placeholder="paste key once per session"
-                  type="password"
-                  value={imgbbKey}
-                  onChange={(e) => { setImgbbKey(e.target.value); sessionStorage.setItem('imgbb_key', e.target.value); }}
-                />
-              </div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
                   {uploading ? 'Uploading...' : '📤 Upload photo'}
@@ -664,15 +655,6 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
             {/* ── PHOTO: upload / URL / AI ─────────────────────────── */}
             <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>📸 Item Photo</div>
-              <div className="form-group" style={{ marginBottom: 8 }}>
-                <label>ImgBB API key (free — imgbb.com → API, session me hi rehta hai)</label>
-                <input
-                  placeholder="paste key once per session"
-                  type="password"
-                  value={imgbbKey}
-                  onChange={(e) => { setImgbbKey(e.target.value); sessionStorage.setItem('imgbb_key', e.target.value); }}
-                />
-              </div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
                   {uploading ? 'Uploading...' : '📤 Upload photo'}
