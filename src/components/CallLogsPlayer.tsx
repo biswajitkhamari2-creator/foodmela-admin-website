@@ -12,10 +12,7 @@ import { fmtDateTime, tsToDate } from '../utils/helpers';
 
 // Same-domain backend: foodmela.online/api in production, VITE_BACKEND_URL
 // override for local dev, legacy vercel.app URL as last resort.
-const BACKEND_BASE =
-  (import.meta as unknown as { env?: Record<string, string> }).env
-    ?.VITE_BACKEND_URL
-  ?? (import.meta.env.PROD ? '' : 'https://food-mela-backend.vercel.app');
+import { adminFetch } from '../utils/adminApi';
 
 export interface CallLog {
   id: string;
@@ -38,7 +35,7 @@ function PlayableRecording({ log }: { log: CallLog }) {
   useEffect(() => {
     if (!log.playbackUrl || triedSigned) return;
     let cancelled = false;
-    fetch(`${BACKEND_BASE}${log.playbackUrl}`)
+    adminFetch(log.playbackUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data: { url?: string }) => {
         if (!cancelled && typeof data.url === 'string') {
@@ -103,7 +100,7 @@ export default function CallLogsPlayer({ orderId }: { orderId: string }) {
     let cancelled = false;
 
     // 1. Backend logs (authoritative — includes recordingUrl mp3s)
-    fetch(`${BACKEND_BASE}/api/admin/orders/${encodeURIComponent(orderId)}/call-logs`)
+    adminFetch(`/api/admin/orders/${encodeURIComponent(orderId)}/call-logs`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data: { logs?: unknown[] }) => {
         if (cancelled) return;

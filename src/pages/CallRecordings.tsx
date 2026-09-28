@@ -6,10 +6,7 @@ import { EmptyState, Pagination, Toast } from '../components/UI';
 
 // Same-domain backend: foodmela.online/api in production, VITE_BACKEND_URL
 // override for local dev, legacy vercel.app URL as last resort.
-const BACKEND_BASE =
-  (import.meta as unknown as { env?: Record<string, string> }).env
-    ?.VITE_BACKEND_URL
-  ?? (import.meta.env.PROD ? '' : 'https://food-mela-backend.vercel.app');
+import { adminFetch } from '../utils/adminApi';
 
 const PAGE_SIZE = 15;
 
@@ -50,7 +47,7 @@ export default function CallRecordings({ globalSearch }: { globalSearch?: string
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${BACKEND_BASE}/api/admin/call-logs?limit=500`)
+    adminFetch(`/api/admin/call-logs?limit=500`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data: { logs?: CallLog[] }) => {
         if (cancelled) return;

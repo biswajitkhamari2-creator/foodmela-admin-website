@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
-import { collection, query, orderBy, limit, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, serverTimestamp, addDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { tsToDate, fmtDateTime } from '../utils/helpers';
+import { adminFetch } from '../utils/adminApi';
+import { tsToDate, fmtDateTime, formatOrderId } from '../utils/helpers';
 import { StageBadge, EmptyState, Pagination, ConfirmDialog, Toast } from '../components/UI';
 import type { OrderRecord } from '../types';
 import { useCustomerNames, freshName } from '../hooks/useCustomerNames';
@@ -71,22 +72,24 @@ export default function Orders({ globalSearch }: { globalSearch?: string }) {
     try {
       const isAccept = confirm.action === 'accept';
       const isDeliver = confirm.action === 'deliver';
-      await updateDoc(doc(db, 'orders', confirm.docId), isAccept ? {
-        stage: 1,
-        status: 'Accepted by Admin ✅',
-        acceptedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      } : isDeliver ? {
-        stage: 3,
-        status: 'Delivered by Admin 🏁 (no OTP)',
-        deliveredAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      } : {
-        stage: -1,
-        status: 'Rejected by Admin 🚨',
-        cancelledAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      // Server-authoritative (same policy as OrderDetail): backend validates,
+      // persists, and mirrors to Firestore. The onSnapshot listener above
+      // renders the confirmed state. No direct Firestore stage write — that
+      // path bypassed validation.
+      const target = orders.find((o) => o.id === confirm.docId);
+      const opId = `${confirm.docId}-${confirm.action}-${Date.now()}`;
+      const endpoint = isAccept ? '/api/orders/accept'
+        : isDeliver ? '/api/orders/update-stage' : '/api/orders/cancel';
+      const payload = isAccept
+        ? { orderId: target?.orderId ?? confirm.docId, driverName: adminName || 'Admin', opId }
+        : isDeliver
+          ? { orderId: target?.orderId ?? confirm.docId, newStage: 3, opId }
+          : { orderId: target?.orderId ?? confirm.docId };
+      const res = await adminFetch(endpoint, { method: 'POST', body: JSON.stringify(payload) });
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!res.ok || data.success !== true) {
+        throw new Error(data.error || `Server rejected the update (${res.status})`);
+      }
       await addDoc(collection(db, 'admin_audit_logs'), {
         adminPhone: user?.uid ?? 'admin',
         adminName: adminName || 'Admin',
@@ -159,7 +162,7 @@ export default function Orders({ globalSearch }: { globalSearch?: string }) {
                 {paged.map((o) => {
                   const stage = o.stage ?? 0;
                   const docId = o.id;
-                  const label = (o.orderId ?? o.id ?? '').replace(/^FM-/, '');
+                  const label = formatOrderId(o.orderId ?? o.id);
                   const actionable = stage === 0 || stage === 1 || stage === 2 || stage === -1;
                   return (
                   <tr key={o.id} className="clickable" onClick={() => nav(`/orders/${o.orderId ?? o.id}`)}>
@@ -173,7 +176,7 @@ export default function Orders({ globalSearch }: { globalSearch?: string }) {
                     <td><StageBadge stage={stage} /></td>
                     <td>
                       <div className="cell-main">{o.riderName || '—'}</div>
-                      <div className="cell-sub">{(o.riderId || '').replace(/^FM-/, '')}</div>
+                      <div className="cell-sub">{o.riderId || ''}</div>
                     </td>
                     <td className="cell-sub">{fmtDateTime(tsToDate(o.createdAt))}</td>
                     <td onClick={(e) => e.stopPropagation()}>

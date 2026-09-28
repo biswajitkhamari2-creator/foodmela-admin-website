@@ -9,8 +9,10 @@ import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import OrderDetail from './pages/OrderDetail';
 import Invoices from './pages/Invoices';
+import Payments from './pages/Payments';
 import Products from './pages/Products';
 import Banners from './pages/Banners';
+import Promos from './pages/Promos';
 import Customers from './pages/Customers';
 import Partners from './pages/Partners';
 import Approvals from './pages/Approvals';
@@ -19,6 +21,7 @@ import Withdrawals from './pages/Withdrawals';
 import Analytics from './pages/Analytics';
 import ActivityLogs from './pages/ActivityLogs';
 import CallRecordings from './pages/CallRecordings';
+import Settings from './pages/Settings';
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { isAdmin, loading } = useAuth();
@@ -68,8 +71,10 @@ function AdminLayout() {
     '/': { title: 'Dashboard', subtitle: 'Real-time operations overview' },
     '/orders': { title: 'Orders', subtitle: 'Orders overview' },
     '/invoices': { title: 'Invoices', subtitle: 'Billing tracking — collected, pending, COD vs prepaid' },
+    '/payments': { title: 'Payments', subtitle: 'Every gateway transaction — PhonePe / PayU / COD, no gateway login needed' },
     '/products': { title: 'Product Prices', subtitle: 'Dynamic pricing — updates the customer app on refresh' },
     '/banners': { title: 'Festival Banners', subtitle: 'Home-screen campaigns — no app update needed' },
+    '/promos': { title: 'Promo Codes', subtitle: 'Discount coupons — live on customer site instantly' },
     '/customers': { title: 'Customers', subtitle: 'Customer management' },
     '/partners': { title: 'Delivery Partners', subtitle: 'Partner management' },
     '/approvals': { title: 'Pending Approvals', subtitle: 'New delivery partners awaiting review' },
@@ -78,6 +83,7 @@ function AdminLayout() {
     '/analytics': { title: 'Analytics', subtitle: 'Performance insights' },
     '/calls': { title: 'Call Recordings', subtitle: 'Customer ↔ rider VoIP captures — numbers stay hidden' },
     '/logs': { title: 'Admin Audit Logs', subtitle: 'All administrative actions — immutable record' },
+    '/settings': { title: 'Settings', subtitle: 'Maintenance mode — site ON/OFF without deploy' },
   };
 
   const current = titles[location.pathname] ?? (location.pathname.startsWith('/orders/') ? { title: 'Order Details', subtitle: 'Complete order information' } : { title: 'Admin', subtitle: '' });
@@ -91,31 +97,38 @@ function AdminLayout() {
       <div className="main-wrap">
         <div className="topbar">
           <div className="topbar-left">
-            <button className="menu-btn" onClick={() => setMobileOpen(!mobileOpen)}>☰</button>
-            <div>
-              <h1 className="topbar-title">{current.title}</h1>
+            <button className="menu-btn" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Toggle menu">☰</button>
+            <div className="topbar-heading">
+              <div className="topbar-title-row">
+                <h1 className="topbar-title">{current.title}</h1>
+                <span className="topbar-env-pill">Console</span>
+              </div>
               <p className="topbar-subtitle">{current.subtitle}</p>
             </div>
           </div>
           <div className="topbar-right">
             <div className="global-search">
-              <span>🔍</span>
+              <span className="search-icon">🔍</span>
               <input
                 id="global-search-input"
-                placeholder="Search by 4-digit ID, orders, customers, partners..."
+                placeholder="Search orders, customers, partners..."
                 value={globalSearch}
                 onChange={(e) => setGlobalSearch(e.target.value)}
               />
               {globalSearch ? (
                 <button className="search-clear" onClick={() => setGlobalSearch('')} title="Clear search">✕</button>
               ) : (
-                <kbd className="search-hint">/</kbd>
+                <kbd className="search-hint">⌘K</kbd>
               )}
             </div>
-            <span className="topbar-clock" title={now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}>
-              {now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-            </span>
-            <span className="live-badge"><span className="live-dot-sm" /> LIVE</span>
+            <div className="topbar-clock" title={now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}>
+              <span className="clock-icon">🕒</span>
+              <span>{now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}</span>
+            </div>
+            <div className="live-badge">
+              <span className="live-dot-sm" />
+              <span>LIVE</span>
+            </div>
           </div>
         </div>
         <div className="content">
@@ -125,8 +138,10 @@ function AdminLayout() {
             <Route path="/orders" element={<Orders globalSearch={globalSearch} />} />
             <Route path="/orders/:orderId" element={<OrderDetail />} />
             <Route path="/invoices" element={<Invoices globalSearch={globalSearch} />} />
+            <Route path="/payments" element={<Payments globalSearch={globalSearch} />} />
             <Route path="/products" element={<Products globalSearch={globalSearch} />} />
             <Route path="/banners" element={<Banners globalSearch={globalSearch} />} />
+            <Route path="/promos" element={<Promos globalSearch={globalSearch} />} />
             <Route path="/customers" element={<Customers globalSearch={globalSearch} />} />
             <Route path="/partners" element={<Partners globalSearch={globalSearch} />} />
             <Route path="/approvals" element={<Approvals />} />
@@ -135,6 +150,7 @@ function AdminLayout() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/calls" element={<CallRecordings globalSearch={globalSearch} />} />
             <Route path="/logs" element={<ActivityLogs />} />
+            <Route path="/settings" element={<Settings />} />
           </Routes>
           </div>
         </div>

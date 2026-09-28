@@ -58,11 +58,18 @@ export function generatePartnerId(name: string): string {
   return `${prefix}-${suffix}`;
 }
 
-// ── ID helpers — clean display + 4-digit search ────────────────────────────
-export function displayId(raw: string | undefined | null): string {
-  if (!raw) return '—';
-  // Strip FM- prefix if present (legacy), show clean XXX-XXXX
-  return raw.replace(/^FM-/, '');
+// ── ID helpers — consistent FM- display + 4-digit search ───────────────────
+export function formatOrderId(raw: unknown): string {
+  if (raw === null || raw === undefined) return '—';
+  const str = String(raw).trim();
+  if (!str) return '—';
+  if (str.startsWith('FM-')) return str;
+  if (str.startsWith('FM')) return 'FM-' + str.slice(2);
+  return 'FM-' + str;
+}
+
+export function displayId(raw: unknown): string {
+  return formatOrderId(raw);
 }
 
 export function matchesIdSearch(raw: string | undefined | null, query: string): boolean {

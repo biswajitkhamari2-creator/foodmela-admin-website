@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { tsToDate, fmtDateTime } from '../utils/helpers';
+import { tsToDate, fmtDateTime, formatOrderId } from '../utils/helpers';
 import { StageBadge, EmptyState, Pagination } from '../components/UI';
 import type { OrderRecord } from '../types';
 import { useCustomerNames, freshName } from '../hooks/useCustomerNames';
@@ -202,7 +202,7 @@ export default function Invoices({ globalSearch }: { globalSearch?: string }) {
                   const cod = isCod(o);
                   return (
                     <tr key={o.id}>
-                      <td><span className="order-id">{invoiceNo(o)}</span><div className="cell-sub">#{String(o.orderId ?? o.id).replace(/^FM-/, '')}</div></td>
+                      <td><span className="order-id">{invoiceNo(o)}</span><div className="cell-sub">{formatOrderId(o.orderId ?? o.id)}</div></td>
                       <td>
                         <div className="cell-main">{freshName(names, o.customerPhone, o.customerName)}</div>
                         <div className="cell-sub">{o.customerPhone || ''}</div>
@@ -232,7 +232,7 @@ export default function Invoices({ globalSearch }: { globalSearch?: string }) {
 function InvoicePreview({ order: o, customerName, onClose }: { order: OrderRecord; customerName: string; onClose: () => void }) {
   const b = billOf(o);
   const cod = isCod(o);
-  const cleanId = String(o.orderId ?? o.id ?? '').replace(/^FM-/, '');
+  const cleanId = formatOrderId(o.orderId ?? o.id);
   const d = tsToDate(o.createdAt);
   const dateStr = d ? d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
   const addr = (o.address ?? 'Birmaharajpur, Subarnapur, Odisha - 767018').replace(/\[(COD|PREPAID)\]/gi, '').trim();
@@ -252,7 +252,7 @@ function InvoicePreview({ order: o, customerName, onClose }: { order: OrderRecor
             <div className="inv-meta-right">
               <span className="inv-badge">TAX INVOICE / RECEIPT</span>
               <div className="inv-meta-line"><strong>Invoice #:</strong> {invoiceNo(o)}</div>
-              <div className="inv-meta-line"><strong>Order ID:</strong> #{cleanId}</div>
+              <div className="inv-meta-line"><strong>Order ID:</strong> {cleanId}</div>
               <div className="inv-meta-line"><strong>Date:</strong> {dateStr}</div>
             </div>
           </div>

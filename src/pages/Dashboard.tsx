@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { tsToDate, fmtDateTime } from '../utils/helpers';
+import { tsToDate, fmtDateTime, formatOrderId } from '../utils/helpers';
 import { useCustomerNames, freshName } from '../hooks/useCustomerNames';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -178,29 +178,38 @@ export default function Dashboard() {
 
       {/* ── TODAY'S OVERVIEW ─────────────────────────────────────────────── */}
       <div className="dash-kpis">
-        <div className="dash-kpi" onClick={() => nav('/orders')}>
+        <div className="dash-kpi dash-kpi--orders" onClick={() => nav('/orders')}>
           <div className="dash-kpi-top">
             <span className="dash-kpi-label">Today&apos;s Orders</span>
-            <span className="dash-kpi-icon" style={{ background: '#FFF7ED', color: '#F15A24' }}>◧</span>
+            <span className="dash-kpi-icon kpi-icon-orange">🧾</span>
           </div>
           <strong className="dash-kpi-value">{stats.todayOrders}</strong>
-          <span className="dash-kpi-sub">{stats.totalOrders} total orders</span>
+          <div className="dash-kpi-bottom">
+            <span className="kpi-tag kpi-tag-orange">Live</span>
+            <span className="dash-kpi-sub">{stats.totalOrders} total orders</span>
+          </div>
         </div>
-        <div className="dash-kpi" onClick={() => nav('/earnings')}>
+        <div className="dash-kpi dash-kpi--rev" onClick={() => nav('/earnings')}>
           <div className="dash-kpi-top">
             <span className="dash-kpi-label">Today&apos;s Revenue</span>
-            <span className="dash-kpi-icon" style={{ background: '#ECFDF5', color: '#059669' }}>₹</span>
+            <span className="dash-kpi-icon kpi-icon-green">₹</span>
           </div>
           <strong className="dash-kpi-value">₹{stats.todayRevenue.toLocaleString('en-IN')}</strong>
-          <span className="dash-kpi-sub">₹{stats.totalRevenue.toLocaleString('en-IN')} total</span>
+          <div className="dash-kpi-bottom">
+            <span className="kpi-tag kpi-tag-green">Delivered</span>
+            <span className="dash-kpi-sub">₹{stats.totalRevenue.toLocaleString('en-IN')} total</span>
+          </div>
         </div>
-        <div className="dash-kpi" onClick={() => nav('/partners')}>
+        <div className="dash-kpi dash-kpi--partners" onClick={() => nav('/partners')}>
           <div className="dash-kpi-top">
             <span className="dash-kpi-label">Active Delivery</span>
-            <span className="dash-kpi-icon" style={{ background: '#EFF6FF', color: '#2563EB' }}>🛵</span>
+            <span className="dash-kpi-icon kpi-icon-blue">🛵</span>
           </div>
           <strong className="dash-kpi-value">{stats.delivering}</strong>
-          <span className="dash-kpi-sub">{stats.activePartners} active partners</span>
+          <div className="dash-kpi-bottom">
+            <span className="kpi-tag kpi-tag-blue">On Road</span>
+            <span className="dash-kpi-sub">{stats.activePartners} active partners</span>
+          </div>
         </div>
       </div>
 
@@ -257,7 +266,7 @@ export default function Dashboard() {
                 const st = stageStyle(o.stage ?? 0);
                 return (
                   <div key={o.id as string} className="dash-live-row" onClick={() => nav(`/orders/${o.orderId ?? o.id}`)}>
-                    <span className="dash-live-id">{String(o.orderId ?? o.id).replace(/^FM-/, '')}</span>
+                    <span className="dash-live-id">{formatOrderId(o.orderId ?? o.id)}</span>
                     <span className="dash-live-customer">{freshName(names, o.customerPhone, o.customerName)}</span>
                     <span className="dash-live-partner">{String(o.riderName ?? '—')}</span>
                     <span className="dash-live-badge" style={{ background: st.bg, color: st.color, border: `1px solid ${st.dot}30` }}>

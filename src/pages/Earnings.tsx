@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { tsToDate, fmtDateTime } from '../utils/helpers';
+import { tsToDate, fmtDateTime, formatOrderId } from '../utils/helpers';
 import { EmptyState } from '../components/UI';
 import type { OrderRecord } from '../types';
 
@@ -89,7 +89,7 @@ export default function Earnings() {
             <tbody>
               {earnings.valid.map((o) => (
                 <tr key={o.id}>
-                  <td><span className="order-id">{(o.orderId ?? o.id ?? '').replace(/^FM-/, '')}</span></td>
+                  <td><span className="order-id">{formatOrderId(o.orderId ?? o.id)}</span></td>
                   <td>{o.riderName ?? '—'}</td>
                   <td><span className="partner-id">{(o.riderId ?? '—').replace(/^FM-/, '')}</span></td>
                   <td><strong>₹{EARNING_PER_DELIVERY}</strong></td>

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { doc, onSnapshot, updateDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
+import { doc, onSnapshot, serverTimestamp, addDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { tsToDate, fmtDateTime } from '../utils/helpers';
+import { adminFetch } from '../utils/adminApi';
+import { tsToDate, fmtDateTime, formatOrderId } from '../utils/helpers';
 import { StageBadge, ConfirmDialog, Toast } from '../components/UI';
 import CallLogsPlayer from '../components/CallLogsPlayer';
 import type { OrderRecord } from '../types';
@@ -44,22 +45,22 @@ export default function OrderDetail() {
     try {
       const isAccept = confirm === 'accept';
       const isDeliver = confirm === 'deliver';
-      await updateDoc(doc(db, 'orders', order.id), isAccept ? {
-        stage: 1,
-        status: 'Accepted by Admin ✅',
-        acceptedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      } : isDeliver ? {
-        stage: 3,
-        status: 'Delivered by Admin 🏁 (no OTP)',
-        deliveredAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      } : {
-        stage: -1,
-        status: 'Rejected by Admin 🚨',
-        cancelledAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      // Server-authoritative: backend validates, persists, mirrors to
+      // Firestore. The onSnapshot listener below renders the confirmed state.
+      // No direct Firestore stage write — that path bypassed validation.
+      const opId = `${order.id}-${confirm}-${Date.now()}`;
+      const endpoint = isAccept ? '/api/orders/accept'
+        : isDeliver ? '/api/orders/update-stage' : '/api/orders/cancel';
+      const payload = isAccept
+        ? { orderId: order.orderId ?? order.id, driverName: adminName || 'Admin', opId }
+        : isDeliver
+          ? { orderId: order.orderId ?? order.id, newStage: 3, opId }
+          : { orderId: order.orderId ?? order.id };
+      const res = await adminFetch(endpoint, { method: 'POST', body: JSON.stringify(payload) });
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!res.ok || data.success !== true) {
+        throw new Error(data.error || `Server rejected the update (${res.status})`);
+      }
       await addDoc(collection(db, 'admin_audit_logs'), {
         adminPhone: user?.uid ?? 'admin',
         adminName: adminName || 'Admin',
@@ -121,7 +122,7 @@ export default function OrderDetail() {
 
       <Card title="Order Information">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{ fontWeight: 700 }}>{(order.orderId ?? order.id ?? '').replace(/^FM-/, '')}</span>
+          <span style={{ fontWeight: 700 }}>{formatOrderId(order.orderId ?? order.id)}</span>
           <StageBadge stage={order.stage ?? 0} />
         </div>
         {(order.stage === 0 || order.stage === 1 || order.stage === 2 || order.stage === -1) && (
@@ -137,7 +138,7 @@ export default function OrderDetail() {
             )}
           </div>
         )}
-        <Row label="Order ID" value={(order.orderId ?? order.id ?? '').replace(/^FM-/, '')} />
+        <Row label="Order ID" value={formatOrderId(order.orderId ?? order.id)} />
         <Row label="Category" value={`${order.orderCategoryLabel ?? 'GENERAL'} (${order.orderCategory ?? 'general'})`} />
         <Row label="Status" value={order.status || '—'} />
         <Row label="Stage" value={String(order.stage ?? 0)} />
@@ -202,7 +203,7 @@ export default function OrderDetail() {
         ) : (
           <>
             <Row label="Name" value={order.riderName ?? '—'} />
-            <Row label="Partner ID" value={(order.riderId ?? '—').replace(/^FM-/, '')} />
+            <Row label="Partner ID" value={order.riderId ?? '—'} />
             <Row label="Accepted At" value={fmtDateTime(acceptedAt)} />
           </>
         )}
