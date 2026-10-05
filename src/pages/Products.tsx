@@ -68,6 +68,8 @@ interface Editing {
   mrp: string;
   image: string;
   aiPrompt: string;
+  unit: string;
+  unitOptions: string;
 }
 
 const emptyItemForm = {
@@ -97,7 +99,8 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [tab, setTab] = useState<'bundled' | 'custom'>('bundled');
+  // Admin-only mode: bundled demo catalog hidden — only custom (admin-added) products.
+  const [tab, setTab] = useState<'bundled' | 'custom'>('custom');
   const [page, setPage] = useState(1);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -106,6 +109,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
   const [form, setForm] = useState<typeof emptyItemForm | null>(null);
   const [formId, setFormId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<CustomRow | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   // AI photo state
   const [uploading, setUploading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -161,6 +165,8 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       mrp: o?.mrp ? String(o.mrp) : '',
       image: o?.image ?? '',
       aiPrompt: '',
+      unit: (o as { unit?: string } | undefined)?.unit ?? c.unit ?? 'portion',
+      unitOptions: (((o as { unitOptions?: string[] } | undefined)?.unitOptions ?? c.unitOptions ?? ['1 portion']) as string[]).join(', '),
     });
     setAiPreview('');
     setAiOk(false);
@@ -194,6 +200,10 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       if (mrp !== null) payload.mrp = mrp;
       // Image override: non-empty URL saves, empty string CLEARS it (back to bundled photo).
       payload.image = img;
+      // Unit override: saved to product_prices so the customer app picks it up live.
+      const units = editing.unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
+      payload.unit = editing.unit.trim() || 'portion';
+      payload.unitOptions = units.length ? units : ['1 portion'];
       await setDoc(doc(db, 'product_prices', editing.id), payload, { merge: true });
       await addDoc(collection(db, 'admin_audit_logs'), {
         adminPhone: user?.uid ?? 'admin',
@@ -219,9 +229,10 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
   };
 
   // ── Custom items: add / edit / toggle / delete ──────────────────────────
-  const openNewItem = () => { setFormId(null); setForm({ ...emptyItemForm }); setAiPreview(''); setAiOk(false); };
+  const openNewItem = () => { setFormId(null); setForm({ ...emptyItemForm }); setShowAdvanced(false); setAiPreview(''); setAiOk(false); };
   const openEditItem = (r: CustomRow) => {
     setFormId(r.id);
+    setShowAdvanced(false);
     setForm({
       name: r.name ?? '',
       category: r.category ?? 'cooked_food',
@@ -277,9 +288,13 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
   };
 
   const handleAiPhoto = async () => {
-    const prompt = form ? form.aiPrompt.trim() : editing ? editing.aiPrompt.trim() : '';
+    const prompt = form
+      ? (form.aiPrompt.trim() || form.name.trim())
+      : editing
+      ? (editing.aiPrompt.trim() || editing.name.trim())
+      : '';
     if (!prompt) {
-      setToast({ message: 'Pehle AI prompt likho (e.g. crispy masala dosa)', type: 'error' });
+      setToast({ message: 'Pehle Item ka Naam ya AI prompt likho', type: 'error' });
       return;
     }
     setAiLoading(true);
@@ -421,14 +436,11 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
           <button className="btn btn-primary" onClick={openNewItem}>➕ Add New Item</button>
         </div>
         <div className="filters-row">
-          <button className={`chip ${tab === 'bundled' ? 'chip-active' : ''}`} onClick={() => setTab('bundled')}>
-            📦 App Menu ({CATALOG.length})
-          </button>
           <button className={`chip ${tab === 'custom' ? 'chip-active' : ''}`} onClick={() => setTab('custom')}>
             ✨ My Added Items ({customs.length})
           </button>
           <span className="chip" style={{ cursor: 'default', opacity: 0.9 }}>
-            🧮 TOTAL LIVE: {CATALOG.length + customs.filter((c) => c.isActive ?? true).length}
+            🧮 TOTAL LIVE: {customs.filter((c) => c.isActive ?? true).length}
           </span>
         </div>
         <div className="filters-row">
@@ -578,6 +590,10 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
               </p>
             )}
 
+            {/* ── UNIT OVERRIDE ── */}
+            <div className="form-group"><label>Base unit</label><input placeholder="1 kg" value={editing.unit} onChange={(e) => setEditing({ ...editing, unit: e.target.value })} /></div>
+            <div className="form-group"><label>Unit options (comma separated)</label><input placeholder="Half, Full / 500g, 1 kg, 2 kg" value={editing.unitOptions} onChange={(e) => setEditing({ ...editing, unitOptions: e.target.value })} /></div>
+
             {/* ── PHOTO OVERRIDE ── */}
             <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>📸 Item Photo (empty = bundled photo)</div>
@@ -628,98 +644,204 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       {form && (
         <div className="dialog-overlay" onClick={() => { setForm(null); setFormId(null); }}>
           <div className="dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
-            <h3>{formId ? 'Edit item' : '➕ Add New Item'}</h3>
-            <p>Save karte hi customer app + website me dikhega (refresh par) — koi app update nahi chahiye.</p>
-            <div className="form-group"><label>Item name *</label><input placeholder="e.g. Masala Dosa" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div className="form-group">
-                <label>Category</label>
-                <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #E2E8F0' }}>
-                  {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Veg / Non-veg</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className={`chip ${form.isVeg ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isVeg: true })}>🟢 Veg</button>
-                  <button className={`chip ${!form.isVeg ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isVeg: false })}>🔴 Non-veg</button>
-                </div>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 18 }}>{formId ? '✏️ Edit Item' : '✨ Add New Item'}</h3>
+              <button className="btn btn-sm btn-ghost" onClick={() => { setForm(null); setFormId(null); }}>✕</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <div className="form-group"><label>Price (₹) *</label><input type="number" min="0" placeholder="99" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></div>
-              <div className="form-group"><label>MRP (₹, optional)</label><input type="number" min="0" placeholder="129" value={form.mrp} onChange={(e) => setForm({ ...form, mrp: e.target.value })} /></div>
-              <div className="form-group"><label>Rating (1–5)</label><input type="number" min="1" max="5" step="0.1" value={form.rating} onChange={(e) => setForm({ ...form, rating: e.target.value })} /></div>
+            <p style={{ fontSize: 13, color: '#64748B', marginTop: 0, marginBottom: 14 }}>
+              Fill in the details below. Clicking save will make this item <strong>LIVE immediately on both the Customer App & Website</strong>.
+            </p>
+
+            {/* 1. Item Name */}
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label style={{ fontWeight: 700, fontSize: 13 }}>Item Name *</label>
+              <input
+                placeholder="e.g. Odisha Bhaja Moong Dal (1kg) or Fresh Paneer"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14 }}
+              />
             </div>
 
-            {/* ── PHOTO: upload / URL / AI ─────────────────────────── */}
+            {/* 2. Pricing & MRP */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
+              <div className="form-group">
+                <label style={{ fontWeight: 700, fontSize: 13 }}>MRP / Original Price (₹)</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 150"
+                  value={form.mrp}
+                  onChange={(e) => setForm({ ...form, mrp: e.target.value })}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14 }}
+                />
+              </div>
+              <div className="form-group">
+                <label style={{ fontWeight: 700, fontSize: 13 }}>Selling / Cut Price (₹) *</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 130"
+                  value={form.price}
+                  onChange={(e) => setForm({ ...form, price: e.target.value })}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14 }}
+                />
+              </div>
+            </div>
+
+            {/* Dynamic Discount Calculation Badge */}
+            {form.mrp.trim() !== '' && form.price.trim() !== '' && Number(form.mrp) > Number(form.price) && (
+              <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '8px 12px', marginBottom: 12, fontSize: 13, color: '#166534', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>🏷️ <strong>Discount Live Display:</strong></span>
+                <span style={{ textDecoration: 'line-through', color: '#94A3B8' }}>₹{form.mrp}</span>
+                <span style={{ fontWeight: 800, color: '#15803D' }}>₹{form.price}</span>
+                <span className="badge badge-active" style={{ background: '#DCFCE7', color: '#15803D', border: '1px solid #86EFAC' }}>
+                  Save ₹{Number(form.mrp) - Number(form.price)} ({Math.round(((Number(form.mrp) - Number(form.price)) / Number(form.mrp)) * 100)}% OFF)
+                </span>
+              </div>
+            )}
+
+            {/* 3. Category */}
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label style={{ fontWeight: 700, fontSize: 13 }}>Category</label>
+              <select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
+              >
+                {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 4. Add Photo Box */}
             <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>📸 Item Photo</div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
-                  {uploading ? 'Uploading...' : '📤 Upload photo'}
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#1E293B', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>📸 Item Photo</span>
+                {form.image.trim() !== '' && (
+                  <button className="btn btn-sm btn-ghost" style={{ color: '#EF4444', fontSize: 12 }} onClick={() => setForm({ ...form, image: '' })}>
+                    🗑 Remove photo
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer', background: '#FFF', border: '1px solid #CBD5E1' }}>
+                  {uploading ? '⏳ Uploading...' : '📤 Upload Photo from Device'}
                   <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhotoFile(f); e.target.value = ''; }} />
                 </label>
+                <button
+                  className="btn btn-sm btn-primary"
+                  disabled={aiLoading}
+                  onClick={handleAiPhoto}
+                  title="Generates a free high-quality food photo using AI"
+                >
+                  {aiLoading ? '⏳ Generating AI Photo...' : `✨ Auto AI Photo ${form.name.trim() ? `for "${form.name.trim().slice(0, 15)}..."` : ''}`}
+                </button>
               </div>
-              <div className="form-group" style={{ marginBottom: 8 }}><label>…or paste image URL</label><input placeholder="https://..." value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} /></div>
-              <div className="form-group" style={{ marginBottom: 8 }}>
-                <label>…or describe for FREE AI photo</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input placeholder="e.g. crispy masala dosa with chutney" value={form.aiPrompt} onChange={(e) => setForm({ ...form, aiPrompt: e.target.value })} style={{ flex: 1 }} />
-                  <button className="btn btn-sm btn-primary" disabled={aiLoading || !form.aiPrompt.trim()} onClick={handleAiPhoto}>
-                    {aiLoading ? '...' : '✨ AI'}
-                  </button>
-                </div>
+
+              <div className="form-group" style={{ marginBottom: 6 }}>
+                <input
+                  placeholder="...or paste image URL directly (https://...)"
+                  value={form.image}
+                  onChange={(e) => setForm({ ...form, image: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 13 }}
+                />
               </div>
+
               {aiPreview !== '' && aiOk && (
-                <div style={{ marginBottom: 8 }}>
+                <div style={{ marginTop: 8, marginBottom: 8 }}>
                   <img src={aiPreview} alt="AI preview" style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 10, display: 'block' }} />
                   <button className="btn btn-sm btn-success" style={{ width: '100%', marginTop: 6 }} onClick={() => { setForm({ ...form, image: aiPreview }); setToast({ message: 'AI photo lag gayi ✅', type: 'success' }); }}>
                     ✅ Use this AI photo
                   </button>
                 </div>
               )}
+
               {form.image.trim() !== '' && (
-                <img src={form.image.trim()} alt="preview" style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 10, display: 'block' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <div style={{ marginTop: 8 }}>
+                  <img
+                    src={form.image.trim()}
+                    alt="preview"
+                    style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 10, display: 'block', border: '1px solid #E2E8F0' }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div className="form-group"><label>Tag (optional, e.g. 🔥 Bestseller)</label><input placeholder="🔥 Bestseller" value={form.freshnessTag} onChange={(e) => setForm({ ...form, freshnessTag: e.target.value })} /></div>
-              <div className="form-group"><label>Deal text (optional)</label><input placeholder="Buy 1 Get 1" value={form.dealText} onChange={(e) => setForm({ ...form, dealText: e.target.value })} /></div>
-            </div>
-            <div className="form-group">
-              <label>Badges</label>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className={`chip ${form.isPopular ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isPopular: !form.isPopular })}>⭐ Popular</button>
-                <button className={`chip ${form.isBestDeal ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isBestDeal: !form.isBestDeal })}>💰 Best Deal</button>
-                <button className={`chip ${form.isFreshToday ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isFreshToday: !form.isFreshToday })}>🌿 Fresh Today</button>
+            {/* Veg / Non-veg — ALWAYS visible (was hidden in More Options, causing all items to save as Veg) */}
+            <div style={{ background: '#F0FDF4', border: '2px solid #86EFAC', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#166534', marginBottom: 8 }}>🟢🔴 Veg / Non-veg *</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className={`chip ${form.isVeg ? 'chip-active' : ''}`} style={form.isVeg ? { background: '#16A34A', color: '#FFF', borderColor: '#16A34A' } : {}} onClick={() => setForm({ ...form, isVeg: true })}>🟢 Veg</button>
+                <button type="button" className={`chip ${!form.isVeg ? 'chip-active' : ''}`} style={!form.isVeg ? { background: '#DC2626', color: '#FFF', borderColor: '#DC2626' } : {}} onClick={() => setForm({ ...form, isVeg: false })}>🔴 Non-veg</button>
               </div>
             </div>
-            <div className="form-group">
-              <label>Raw item? (vegetables/grocery with units like 1kg, 500g)</label>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className={`chip ${form.isRawItem ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isRawItem: !form.isRawItem })}>
-                  {form.isRawItem ? 'Yes — raw with units ✓' : 'No — fixed portion'}
-                </button>
-              </div>
-            </div>
-            {form.isRawItem && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
-                <div className="form-group"><label>Base unit</label><input placeholder="1 kg" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></div>
-                <div className="form-group"><label>Unit options (comma me)</label><input placeholder="500g, 1 kg, 2 kg, 5 kg" value={form.unitOptions} onChange={(e) => setForm({ ...form, unitOptions: e.target.value })} /></div>
-              </div>
-            )}
-            <div className="form-group">
-              <label>Visible in app?</label>
-              <button className={`chip ${form.isActive ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isActive: !form.isActive })}>
-                {form.isActive ? 'Live ✓' : 'Hidden'}
+
+            {/* Collapsible Advanced Options Toggle */}
+            <div style={{ marginBottom: 12 }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                style={{ width: '100%', justifyContent: 'center', background: '#F1F5F9', border: '1px solid #E2E8F0', color: '#475569', fontWeight: 600 }}
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                {showAdvanced ? '🔼 Hide Advanced Options' : '⚙️ More Options (Unit, Badges, Rating)'}
               </button>
             </div>
+
+            {showAdvanced && (
+              <div style={{ background: '#FFF', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                  <div className="form-group">
+                    <label>Rating (1–5)</label>
+                    <input type="number" min="1" max="5" step="0.1" value={form.rating} onChange={(e) => setForm({ ...form, rating: e.target.value })} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                  <div className="form-group"><label>Tag (e.g. 🔥 Bestseller)</label><input placeholder="🔥 Bestseller" value={form.freshnessTag} onChange={(e) => setForm({ ...form, freshnessTag: e.target.value })} /></div>
+                  <div className="form-group"><label>Deal text (optional)</label><input placeholder="Buy 1 Get 1" value={form.dealText} onChange={(e) => setForm({ ...form, dealText: e.target.value })} /></div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 10 }}>
+                  <label>Badges</label>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button type="button" className={`chip ${form.isPopular ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isPopular: !form.isPopular })}>⭐ Popular</button>
+                    <button type="button" className={`chip ${form.isBestDeal ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isBestDeal: !form.isBestDeal })}>💰 Best Deal</button>
+                    <button type="button" className={`chip ${form.isFreshToday ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isFreshToday: !form.isFreshToday })}>🌿 Fresh Today</button>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 10 }}>
+                  <label>Raw grocery item? (vegetables/grains with units)</label>
+                  <button type="button" className={`chip ${form.isRawItem ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isRawItem: !form.isRawItem })}>
+                    {form.isRawItem ? 'Yes — raw item with weight units ✓' : 'No — fixed portion'}
+                  </button>
+                </div>
+
+                {form.isRawItem && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10, marginBottom: 10 }}>
+                    <div className="form-group"><label>Base unit</label><input placeholder="1 kg" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></div>
+                    <div className="form-group"><label>Unit options (comma separated)</label><input placeholder="500g, 1 kg, 2 kg, 5 kg" value={form.unitOptions} onChange={(e) => setForm({ ...form, unitOptions: e.target.value })} /></div>
+                  </div>
+                )}
+
+                <div className="form-group">
+                  <label>Visible on Customer App & Website?</label>
+                  <button type="button" className={`chip ${form.isActive ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isActive: !form.isActive })}>
+                    {form.isActive ? 'Live ✓' : 'Hidden'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="dialog-actions">
               <button className="btn btn-ghost" onClick={() => { setForm(null); setFormId(null); }}>Cancel</button>
-              <button className="btn btn-primary" disabled={saving || uploading} onClick={handleSaveItem}>
-                {saving ? 'Saving...' : formId ? 'Save changes' : '🚀 Add to App'}
+              <button className="btn btn-primary" style={{ padding: '10px 20px', fontWeight: 700 }} disabled={saving || uploading} onClick={handleSaveItem}>
+                {saving ? 'Saving...' : formId ? 'Save Changes' : '🚀 Save & Go Live on App + Website'}
               </button>
             </div>
           </div>
