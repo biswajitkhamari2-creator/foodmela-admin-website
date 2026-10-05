@@ -13,6 +13,7 @@ import Payments from './pages/Payments';
 import Products from './pages/Products';
 import Categories from './pages/Categories';
 import Banners from './pages/Banners';
+import NoticeBoard from './pages/NoticeBoard';
 import Promos from './pages/Promos';
 import Customers from './pages/Customers';
 import Partners from './pages/Partners';
@@ -146,6 +147,8 @@ function AdminLayout() {
             <Route path="/products" element={<Products globalSearch={globalSearch} />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/banners" element={<Banners globalSearch={globalSearch} />} />
+            <Route path="/notices" element={<NoticeBoard globalSearch={globalSearch} />} />
+            <Route path="/notice-board" element={<NoticeBoard globalSearch={globalSearch} />} />
             <Route path="/promos" element={<Promos globalSearch={globalSearch} />} />
             <Route path="/customers" element={<Customers globalSearch={globalSearch} />} />
             <Route path="/partners" element={<Partners globalSearch={globalSearch} />} />

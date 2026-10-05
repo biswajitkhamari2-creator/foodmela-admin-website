@@ -8,6 +8,7 @@ const navItems = [
   { to: '/products', label: 'Prices', icon: '🏷️' },
   { to: '/categories', label: 'Categories', icon: '🗂️' },
   { to: '/banners', label: 'Banners', icon: '🎉' },
+  { to: '/notices', label: 'Notice Board', icon: '📢' },
   { to: '/promos', label: 'Promo Codes', icon: '🏷️' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/partners', label: 'Delivery Partners', icon: '🛵' },
