@@ -129,24 +129,36 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
 
   const overrideById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
 
+  // Premium in-page search: local input is the boss (global topbar search only
+  // fills in when local is empty) — typing here never freezes, never redirects.
+  const effSearch = (search || globalSearch || '').toLowerCase().trim();
+
   // Full catalog with live effective prices — admin picks BY NAME, never an ID.
   const items = useMemo(() => {
-    const s = (globalSearch || search).toLowerCase().trim();
+    const s = effSearch;
     return CATALOG.filter((c) => {
       if (categoryFilter !== 'all' && c.category !== categoryFilter) return false;
-      if (s && !`${c.name} ${c.categoryLabel}`.toLowerCase().includes(s)) return false;
+      if (s && !`${c.name} ${c.categoryLabel} ${c.id}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [search, globalSearch, categoryFilter]);
+  }, [effSearch, categoryFilter]);
 
   const filteredCustoms = useMemo(() => {
-    const s = (globalSearch || search).toLowerCase().trim();
+    const s = effSearch;
     return customs.filter((c) => {
       if (categoryFilter !== 'all' && (c.category ?? 'cooked_food') !== categoryFilter) return false;
-      if (s && !`${c.name ?? ''} ${c.id}`.toLowerCase().includes(s)) return false;
+      if (s && !`${c.name ?? ''} ${c.id} ${c.category ?? ''}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [customs, search, globalSearch, categoryFilter]);
+  }, [customs, effSearch, categoryFilter]);
+
+  // Auto-tab: when searching, jump to the tab that actually has matches.
+  useEffect(() => {
+    if (!effSearch) return;
+    if (tab === 'custom' && filteredCustoms.length === 0 && items.length > 0) setTab('bundled');
+    else if (tab === 'bundled' && items.length === 0 && filteredCustoms.length > 0) setTab('custom');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effSearch]);
 
   useEffect(() => { setPage(1); }, [search, globalSearch, categoryFilter, tab]);
 
@@ -429,15 +441,25 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
     <div className="page">
       <div className="filters-bar">
         <div className="filters-row">
-          <div className="search-wrap">
+          <div className="search-wrap search-premium">
             <span>🔍</span>
-            <input placeholder="Search by food name..." value={globalSearch ? globalSearch : search} onChange={(e) => setSearch(e.target.value)} />
+            <input placeholder="Search by food name, id or category..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            {search ? (
+              <button className="search-clear" onClick={() => setSearch('')} title="Clear search">✕</button>
+            ) : effSearch ? (
+              <span className="search-global-tag" title="Topbar search applied">🌐</span>
+            ) : null}
           </div>
           <button className="btn btn-primary" onClick={openNewItem}>➕ Add New Item</button>
         </div>
         <div className="filters-row">
           <button className={`chip ${tab === 'custom' ? 'chip-active' : ''}`} onClick={() => setTab('custom')}>
             ✨ My Added Items ({customs.length})
+            {effSearch && <span className="search-count">{filteredCustoms.length}</span>}
+          </button>
+          <button className={`chip ${tab === 'bundled' ? 'chip-active' : ''}`} onClick={() => setTab('bundled')}>
+            📦 Bundled ({CATALOG.length})
+            {effSearch && <span className="search-count">{items.length}</span>}
           </button>
           <span className="chip" style={{ cursor: 'default', opacity: 0.9 }}>
             🧮 TOTAL LIVE: {customs.filter((c) => c.isActive ?? true).length}
