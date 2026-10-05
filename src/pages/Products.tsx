@@ -38,7 +38,7 @@ function defaultUnitForCategory(cat: string): string {
 // (no manual typing for units). Used by BOTH the add/edit form and the
 // price-edit dialog so old and new items share one method.
 function UnitPicker({
-  category, unit, unitOptions, priceBasis, unitPrices, basePrice, onChange,
+  category, unit, unitOptions, priceBasis, unitPrices, basePrice, maxQty, onChange,
 }: {
   category: string;
   unit: string;
@@ -46,7 +46,8 @@ function UnitPicker({
   priceBasis: string;
   unitPrices: Record<string, string>;
   basePrice: string;
-  onChange: (unit: string, unitOptions: string, priceBasis: string, unitPrices: Record<string, string>) => void;
+  maxQty: string;
+  onChange: (unit: string, unitOptions: string, priceBasis: string, unitPrices: Record<string, string>, maxQty: string) => void;
 }) {
   const preset = presetForCategory(category);
   const selected = unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
@@ -56,12 +57,12 @@ function UnitPicker({
       : [...selected, opt];
     // Keep preset order so customer app shows 100g → 5kg sensibly.
     next.sort((a, b) => preset.indexOf(a) - preset.indexOf(b));
-    onChange(unit, next.join(', '), priceBasis, unitPrices);
+    onChange(unit, next.join(', '), priceBasis, unitPrices, maxQty);
   };
-  const selectAll = () => onChange(unit, preset.join(', '), priceBasis, unitPrices);
-  const clearAll = () => onChange(unit, '', priceBasis, unitPrices);
+  const selectAll = () => onChange(unit, preset.join(', '), priceBasis, unitPrices, maxQty);
+  const clearAll = () => onChange(unit, '', priceBasis, unitPrices, maxQty);
   const setPrice = (opt: string, val: string) => {
-    onChange(unit, unitOptions, priceBasis, { ...unitPrices, [opt]: val });
+    onChange(unit, unitOptions, priceBasis, { ...unitPrices, [opt]: val }, maxQty);
   };
   const effPrice = (opt: string): string => {
     if (unitPrices[opt] !== undefined && unitPrices[opt] !== '') return unitPrices[opt];
@@ -82,7 +83,7 @@ function UnitPicker({
           <label>Base unit (default shown)</label>
           <select
             value={preset.includes(unit) ? unit : preset[0] ?? unit}
-            onChange={(e) => onChange(e.target.value, unitOptions, priceBasis, unitPrices)}
+            onChange={(e) => onChange(e.target.value, unitOptions, priceBasis, unitPrices, maxQty)}
             style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
           >
             {preset.map((p) => (
@@ -94,7 +95,7 @@ function UnitPicker({
           <label>💰 Entered price is for…</label>
           <select
             value={preset.includes(priceBasis) ? priceBasis : preset[0] ?? priceBasis}
-            onChange={(e) => onChange(unit, unitOptions, e.target.value, unitPrices)}
+            onChange={(e) => onChange(unit, unitOptions, e.target.value, unitPrices, maxQty)}
             style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
           >
             {preset.map((p) => (
@@ -137,6 +138,17 @@ function UnitPicker({
       {selected.length === 0 && (
         <p style={{ fontSize: 12, color: '#B45309', marginTop: 8 }}>⚠️ Koi option tick nahi — customer ko quantity nahi dikhegi. Kam se kam 1 tick karo.</p>
       )}
+      <div className="form-group" style={{ marginTop: 10, marginBottom: 0 }}>
+        <label>🔒 Max quantity per order (blank = unlimited)</label>
+        <input
+          type="number"
+          min="1"
+          placeholder="e.g. 5 (5 se zyada nahi le sakta)"
+          value={maxQty}
+          onChange={(e) => onChange(unit, unitOptions, priceBasis, unitPrices, e.target.value)}
+          style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
+        />
+      </div>
     </div>
   );
 }
@@ -188,6 +200,7 @@ interface CustomRow {
   unitOptions?: string[];
   priceBasis?: string;
   unitPrices?: Record<string, number>;
+  maxQty?: number;
   freshnessTag?: string;
   isPopular?: boolean;
   isBestDeal?: boolean;
@@ -207,6 +220,7 @@ interface Editing {
   unitOptions: string;
   priceBasis: string;
   unitPrices: Record<string, string>;
+  maxQty: string;
 }
 
 const emptyItemForm = {
@@ -222,6 +236,7 @@ const emptyItemForm = {
   unitOptions: 'Half, Full',
   priceBasis: 'Half',
   unitPrices: {} as Record<string, string>,
+  maxQty: '',
   freshnessTag: '',
   isPopular: false,
   isBestDeal: false,
@@ -322,6 +337,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       unitPrices: ((o as unknown as { unitPrices?: Record<string, number> } | undefined)?.unitPrices
         ? Object.fromEntries(Object.entries((o as unknown as { unitPrices: Record<string, number> }).unitPrices).map(([k, v]) => [k, String(v)]))
         : {}),
+      maxQty: (() => { const n = (o as unknown as { maxQty?: number } | undefined)?.maxQty; return n != null && n > 0 ? String(n) : ''; })(),
     });
     setAiPreview('');
     setAiOk(false);
@@ -367,6 +383,8 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         if (v !== '' && Number.isFinite(n) && n >= 0) ePrices[k] = n;
       }
       payload.unitPrices = ePrices;
+      const eMax = Number(editing.maxQty);
+      if (editing.maxQty.trim() !== '' && Number.isFinite(eMax) && eMax > 0) payload.maxQty = Math.floor(eMax);
       await setDoc(doc(db, 'product_prices', editing.id), payload, { merge: true });
       await addDoc(collection(db, 'admin_audit_logs'), {
         adminPhone: user?.uid ?? 'admin',
@@ -411,6 +429,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       unitPrices: r.unitPrices
         ? Object.fromEntries(Object.entries(r.unitPrices).map(([k, v]) => [k, String(v)]))
         : {},
+      maxQty: r.maxQty != null && r.maxQty > 0 ? String(r.maxQty) : '',
       freshnessTag: r.freshnessTag ?? '',
       isPopular: r.isPopular ?? false,
       isBestDeal: r.isBestDeal ?? false,
@@ -516,6 +535,9 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
             .map(([k, v]) => [k, Number(v)])
             .filter(([, n]) => Number.isFinite(n) && (n as number) >= 0),
         ),
+        ...(form.maxQty.trim() !== '' && Number.isFinite(Number(form.maxQty)) && Number(form.maxQty) > 0
+          ? { maxQty: Math.floor(Number(form.maxQty)) }
+          : {}),
         freshnessTag: form.freshnessTag.trim(),
         isPopular: form.isPopular,
         isBestDeal: form.isBestDeal,
@@ -827,7 +849,8 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
               priceBasis={editing.priceBasis}
               unitPrices={editing.unitPrices}
               basePrice={editing.price}
-              onChange={(unit, unitOptions, priceBasis, unitPrices) => setEditing({ ...editing, unit, unitOptions, priceBasis, unitPrices })}
+              maxQty={editing.maxQty}
+              onChange={(unit, unitOptions, priceBasis, unitPrices, maxQty) => setEditing({ ...editing, unit, unitOptions, priceBasis, unitPrices, maxQty })}
             />
 
             {/* ── PHOTO OVERRIDE ── */}
@@ -1069,7 +1092,8 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                   priceBasis={form.priceBasis}
                   unitPrices={form.unitPrices}
                   basePrice={form.price}
-                  onChange={(unit, unitOptions, priceBasis, unitPrices) => setForm({ ...form, unit, unitOptions, priceBasis, unitPrices })}
+                  maxQty={form.maxQty}
+                  onChange={(unit, unitOptions, priceBasis, unitPrices, maxQty) => setForm({ ...form, unit, unitOptions, priceBasis, unitPrices, maxQty })}
                 />
 
                 <div className="form-group">
