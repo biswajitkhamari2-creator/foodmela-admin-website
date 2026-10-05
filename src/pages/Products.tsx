@@ -8,6 +8,94 @@ import { CATALOG, CATEGORY_LABELS, type CatalogItem } from '../data/catalog';
 
 const PAGE_SIZE = 20;
 
+// ── Unit presets: admin ticks, never types ──────────────────────────────────
+// Cooked food → Half/Full plates. Veg/grocery/dairy → kg steps.
+// Piece items (paneer, eggs, etc.) → piece counts.
+const WEIGHT_PRESET = ['100g', '250g', '500g', '1 kg', '2 kg', '3 kg', '4 kg', '5 kg'];
+const PIECE_PRESET = ['1 pc', '2 pcs', '4 pcs', '6 pcs', '8 pcs', '12 pcs', '1 dozen'];
+const COOKED_PRESET = ['Half', 'Full'];
+const ML_PRESET = ['200 ml', '300 ml', '500 ml', '1 L'];
+
+function presetForCategory(cat: string): string[] {
+  const c = (cat || '').toLowerCase();
+  if (['vegetables', 'fruits', 'grocery', 'dals_pulses', 'dairy'].includes(c)) return WEIGHT_PRESET;
+  if (['eggs_meat', 'non_veg'].includes(c)) return PIECE_PRESET;
+  if (['beverages'].includes(c)) return ML_PRESET;
+  if (['cooked_food', 'fast_food', 'snacks', 'chaat', 'sweets', 'breakfast', 'momos'].includes(c)) return COOKED_PRESET;
+  return [...COOKED_PRESET, ...WEIGHT_PRESET, ...PIECE_PRESET];
+}
+
+function defaultUnitForCategory(cat: string): string {
+  const c = (cat || '').toLowerCase();
+  if (['vegetables', 'fruits', 'grocery', 'dals_pulses', 'dairy'].includes(c)) return '1 kg';
+  if (['eggs_meat', 'non_veg'].includes(c)) return '1 pc';
+  if (['beverages'].includes(c)) return '300 ml';
+  return 'Full';
+}
+
+// Tick-box unit picker: category preset options as toggle chips + base-unit
+// dropdown (no manual typing). Used by BOTH the add/edit form and the
+// price-edit dialog so old and new items share one method.
+function UnitPicker({
+  category, unit, unitOptions, onChange,
+}: {
+  category: string;
+  unit: string;
+  unitOptions: string;
+  onChange: (unit: string, unitOptions: string) => void;
+}) {
+  const preset = presetForCategory(category);
+  const selected = unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
+  const toggle = (opt: string) => {
+    const next = selected.includes(opt)
+      ? selected.filter((u) => u !== opt)
+      : [...selected, opt];
+    // Keep preset order so customer app shows 100g → 5kg sensibly.
+    next.sort((a, b) => preset.indexOf(a) - preset.indexOf(b));
+    onChange(unit, next.join(', '));
+  };
+  const selectAll = () => onChange(unit, preset.join(', '));
+  const clearAll = () => onChange(unit, '');
+  return (
+    <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 800 }}>⚖️ Quantity options (tick — no typing)</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={selectAll}>Select all</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={clearAll}>Clear</button>
+        </div>
+      </div>
+      <div className="form-group" style={{ marginBottom: 10 }}>
+        <label>Base unit (default shown to customer)</label>
+        <select
+          value={preset.includes(unit) ? unit : preset[0] ?? unit}
+          onChange={(e) => onChange(e.target.value, unitOptions)}
+          style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
+        >
+          {preset.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {preset.map((p) => (
+          <button
+            key={p}
+            type="button"
+            className={`chip ${selected.includes(p) ? 'chip-active' : ''}`}
+            onClick={() => toggle(p)}
+          >
+            {selected.includes(p) ? '✓ ' : ''}{p}
+          </button>
+        ))}
+      </div>
+      {selected.length === 0 && (
+        <p style={{ fontSize: 12, color: '#B45309', marginTop: 8 }}>⚠️ Koi option tick nahi — customer ko quantity nahi dikhegi. Kam se kam 1 tick karo.</p>
+      )}
+    </div>
+  );
+}
+
 // Product photo upload — Firebase Storage (product_images/), admin session.
 // No external API key needed; public read so app + website load it directly.
 async function uploadProductPhoto(file: File): Promise<string> {
@@ -341,6 +429,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
     if (mrp !== null && (!Number.isFinite(mrp) || mrp <= price)) { setToast({ message: 'MRP price se zyada hona chahiye', type: 'error' }); return; }
     if (!Number.isFinite(rating) || rating < 1 || rating > 5) { setToast({ message: 'Rating 1–5 ke beech rakho', type: 'error' }); return; }
     const units = form.unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
+    if (!units.length) { setToast({ message: 'Quantity option tick karo (kam se kam 1)', type: 'error' }); return; }
     setSaving(true);
     try {
       const payload = {
@@ -612,9 +701,13 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
               </p>
             )}
 
-            {/* ── UNIT OVERRIDE ── */}
-            <div className="form-group"><label>Base unit</label><input placeholder="1 kg" value={editing.unit} onChange={(e) => setEditing({ ...editing, unit: e.target.value })} /></div>
-            <div className="form-group"><label>Unit options (comma separated)</label><input placeholder="Half, Full / 500g, 1 kg, 2 kg" value={editing.unitOptions} onChange={(e) => setEditing({ ...editing, unitOptions: e.target.value })} /></div>
+            {/* ── UNIT OVERRIDE (tick, no typing) ── */}
+            <UnitPicker
+              category={CATALOG.find((c) => c.id === editing.id)?.category ?? 'cooked_food'}
+              unit={editing.unit}
+              unitOptions={editing.unitOptions}
+              onChange={(unit, unitOptions) => setEditing({ ...editing, unit, unitOptions })}
+            />
 
             {/* ── PHOTO OVERRIDE ── */}
             <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 12 }}>
@@ -728,7 +821,11 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
               <label style={{ fontWeight: 700, fontSize: 13 }}>Category</label>
               <select
                 value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                onChange={(e) => {
+                  const cat = e.target.value;
+                  const preset = presetForCategory(cat);
+                  setForm({ ...form, category: cat, unit: defaultUnitForCategory(cat), unitOptions: preset.join(', ') });
+                }}
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
               >
                 {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
@@ -844,12 +941,12 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                   </button>
                 </div>
 
-                {form.isRawItem && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10, marginBottom: 10 }}>
-                    <div className="form-group"><label>Base unit</label><input placeholder="1 kg" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></div>
-                    <div className="form-group"><label>Unit options (comma separated)</label><input placeholder="500g, 1 kg, 2 kg, 5 kg" value={form.unitOptions} onChange={(e) => setForm({ ...form, unitOptions: e.target.value })} /></div>
-                  </div>
-                )}
+                <UnitPicker
+                  category={form.category}
+                  unit={form.unit}
+                  unitOptions={form.unitOptions}
+                  onChange={(unit, unitOptions) => setForm({ ...form, unit, unitOptions })}
+                />
 
                 <div className="form-group">
                   <label>Visible on Customer App & Website?</label>
