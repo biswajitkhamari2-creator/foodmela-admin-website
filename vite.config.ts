@@ -3,9 +3,10 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  // Served from foodmela.online/admin (merged single-domain build) —
-  // assets must resolve under /admin/, not /.
-  base: '/admin/',
+  // Vercel serves this project at domain root (food-mela-admin.vercel.app),
+  // so assets must resolve under /, not /admin/. (The /admin/ sub-path build
+  // belongs to the merged single-domain setup, not this deployment.)
+  base: '/',
   server: { port: 5174, host: true },
   preview: { port: 4174 },
 });
