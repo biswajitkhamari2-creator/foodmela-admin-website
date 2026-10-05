@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase';
@@ -33,76 +33,85 @@ function defaultUnitForCategory(cat: string): string {
   return 'Full';
 }
 
-// Tick-box unit picker + price basis: category preset options as toggle chips,
-// base-unit dropdown, "price is for" selector, and per-option price inputs
-// (no manual typing for units). Used by BOTH the add/edit form and the
-// price-edit dialog so old and new items share one method.
+// ── SIMPLE unit flow (no confusion) ──────────────────────────────────────────
+// Step 1: "Unit kaise dena hai?" — kilo-wise / portion-wise / piece-wise.
+// Step 2: tick the options to offer. Step 3: price = ONE base price
+// (1 kg ka / Full ka) — baaki auto. Step 4: max limit (blank = unlimited).
+// Used by BOTH the add/edit form and the price-edit dialog.
+type UnitMode = 'kilo' | 'portion' | 'piece';
+
+const UNIT_MODES: { key: UnitMode; label: string; hint: string }[] = [
+  { key: 'kilo', label: '⚖️ Kilo-wise', hint: 'Sabzi/grocery/doodh — 250g, 500g, 1 kg, 2 kg…' },
+  { key: 'portion', label: '🍛 Portion-wise', hint: 'Cooked food — Half, Full' },
+  { key: 'piece', label: '🧩 Piece-wise', hint: 'Paneer/eggs/paste — 1 pc, 2 pcs…' },
+];
+
+const UNIT_MODE_OPTIONS: Record<UnitMode, string[]> = {
+  kilo: ['250g', '500g', '1 kg', '2 kg', '3 kg', '4 kg', '5 kg', '10 kg'],
+  portion: ['Half', 'Full'],
+  piece: ['1 pc', '2 pcs', '4 pcs', '6 pcs', '8 pcs', '12 pcs', '1 dozen'],
+};
+
+const UNIT_MODE_BASE: Record<UnitMode, string> = {
+  kilo: '1 kg',
+  portion: 'Full',
+  piece: '1 pc',
+};
+
+function unitModeForOptions(unitOptions: string, fallbackCategory: string): UnitMode {
+  const opts = unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
+  if (opts.includes('Half') || opts.includes('Full')) return 'portion';
+  if (opts.some((o) => /kg|g\b/i.test(o))) return 'kilo';
+  if (opts.some((o) => /pc|dozen/i.test(o))) return 'piece';
+  const c = fallbackCategory.toLowerCase();
+  if (['vegetables', 'fruits', 'grocery', 'dals_pulses', 'dairy'].includes(c)) return 'kilo';
+  if (['eggs_meat', 'non_veg'].includes(c)) return 'piece';
+  return 'portion';
+}
+
 function UnitPicker({
-  category, unit, unitOptions, priceBasis, unitPrices, basePrice, maxQty, onChange,
+  category, unitOptions, basePrice, maxQty, onChange,
 }: {
   category: string;
-  unit: string;
   unitOptions: string;
-  priceBasis: string;
-  unitPrices: Record<string, string>;
   basePrice: string;
   maxQty: string;
-  onChange: (unit: string, unitOptions: string, priceBasis: string, unitPrices: Record<string, string>, maxQty: string) => void;
+  onChange: (unitOptions: string, maxQty: string) => void;
 }) {
-  const preset = presetForCategory(category);
+  const [mode, setMode] = React.useState<UnitMode>(() => unitModeForOptions(unitOptions, category));
+  const preset = UNIT_MODE_OPTIONS[mode];
   const selected = unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
   const toggle = (opt: string) => {
     const next = selected.includes(opt)
       ? selected.filter((u) => u !== opt)
       : [...selected, opt];
-    // Keep preset order so customer app shows 100g → 5kg sensibly.
     next.sort((a, b) => preset.indexOf(a) - preset.indexOf(b));
-    onChange(unit, next.join(', '), priceBasis, unitPrices, maxQty);
+    onChange(next.join(', '), maxQty);
   };
-  const selectAll = () => onChange(unit, preset.join(', '), priceBasis, unitPrices, maxQty);
-  const clearAll = () => onChange(unit, '', priceBasis, unitPrices, maxQty);
-  const setPrice = (opt: string, val: string) => {
-    onChange(unit, unitOptions, priceBasis, { ...unitPrices, [opt]: val }, maxQty);
+  const switchMode = (m: UnitMode) => {
+    setMode(m);
+    // New mode = fresh preset selection (no stale Half mixed with kg).
+    onChange(UNIT_MODE_OPTIONS[m].join(', '), maxQty);
   };
-  const effPrice = (opt: string): string => {
-    if (unitPrices[opt] !== undefined && unitPrices[opt] !== '') return unitPrices[opt];
-    if (opt === priceBasis) return basePrice;
-    return '';
-  };
+  const baseLabel = UNIT_MODE_BASE[mode];
   return (
     <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 800 }}>⚖️ Quantity options (tick — no typing)</div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={selectAll}>Select all</button>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={clearAll}>Clear</button>
-        </div>
+      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>1️⃣ Unit kaise dena hai?</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        {UNIT_MODES.map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            className={`chip ${mode === m.key ? 'chip-active' : ''}`}
+            title={m.hint}
+            onClick={() => switchMode(m.key)}
+          >
+            {m.label}
+          </button>
+        ))}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label>Base unit (default shown)</label>
-          <select
-            value={preset.includes(unit) ? unit : preset[0] ?? unit}
-            onChange={(e) => onChange(e.target.value, unitOptions, priceBasis, unitPrices, maxQty)}
-            style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
-          >
-            {preset.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label>💰 Entered price is for…</label>
-          <select
-            value={preset.includes(priceBasis) ? priceBasis : preset[0] ?? priceBasis}
-            onChange={(e) => onChange(unit, unitOptions, e.target.value, unitPrices, maxQty)}
-            style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
-          >
-            {preset.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-        </div>
+      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>
+        2️⃣ Kaun-kaun se options doge? <span style={{ fontWeight: 400, color: '#64748B' }}>(tick karo)</span>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
         {preset.map((p) => (
@@ -116,36 +125,21 @@ function UnitPicker({
           </button>
         ))}
       </div>
-      {selected.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Per-option price ₹ (blank = auto-calculated from “price is for”)</div>
-          {selected.map((opt) => (
-            <div key={opt} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ minWidth: 70, fontSize: 13, fontWeight: 600 }}>{opt}{opt === priceBasis ? ' ★' : ''}</span>
-              <input
-                type="number"
-                min="0"
-                placeholder={opt === priceBasis ? `= entered price` : 'auto'}
-                value={effPrice(opt)}
-                disabled={opt === priceBasis}
-                onChange={(e) => setPrice(opt, e.target.value)}
-                style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13 }}
-              />
-            </div>
-          ))}
-        </div>
-      )}
       {selected.length === 0 && (
         <p style={{ fontSize: 12, color: '#B45309', marginTop: 8 }}>⚠️ Koi option tick nahi — customer ko quantity nahi dikhegi. Kam se kam 1 tick karo.</p>
       )}
+      <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '8px 12px', marginTop: 8, fontSize: 12.5, color: '#166534' }}>
+        3️⃣ Price: upar jo <strong>₹{basePrice || '…'}</strong> likha hai wahi <strong>{baseLabel}</strong> ka daam hai.
+        Baaki auto: {mode === 'kilo' ? '250g = ¼, 500g = ½, 2 kg = double' : mode === 'portion' ? 'Half = aadha' : 'count ke hisaab se'}.
+      </div>
       <div className="form-group" style={{ marginTop: 10, marginBottom: 0 }}>
-        <label>🔒 Max quantity per order (blank = unlimited)</label>
+        <label>4️⃣ 🔒 Max kitna le sakta hai? (blank = unlimited)</label>
         <input
           type="number"
           min="1"
-          placeholder="e.g. 5 (5 se zyada nahi le sakta)"
+          placeholder={mode === 'kilo' ? 'e.g. 10 (10 kg tak)' : mode === 'portion' ? 'e.g. 2 (2 Full tak)' : 'e.g. 12'}
           value={maxQty}
-          onChange={(e) => onChange(unit, unitOptions, priceBasis, unitPrices, e.target.value)}
+          onChange={(e) => onChange(unitOptions, e.target.value)}
           style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
         />
       </div>
@@ -216,10 +210,7 @@ interface Editing {
   mrp: string;
   image: string;
   aiPrompt: string;
-  unit: string;
   unitOptions: string;
-  priceBasis: string;
-  unitPrices: Record<string, string>;
   maxQty: string;
 }
 
@@ -232,10 +223,7 @@ const emptyItemForm = {
   image: '',
   isVeg: true,
   isRawItem: false,
-  unit: 'Full',
   unitOptions: 'Half, Full',
-  priceBasis: 'Half',
-  unitPrices: {} as Record<string, string>,
   maxQty: '',
   freshnessTag: '',
   isPopular: false,
@@ -331,12 +319,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       mrp: o?.mrp ? String(o.mrp) : '',
       image: o?.image ?? '',
       aiPrompt: '',
-      unit: (o as { unit?: string } | undefined)?.unit ?? c.unit ?? 'portion',
       unitOptions: (((o as unknown as { unitOptions?: string[] } | undefined)?.unitOptions ?? c.unitOptions ?? ['1 portion']) as string[]).join(', '),
-      priceBasis: (o as unknown as { priceBasis?: string } | undefined)?.priceBasis ?? c.unit ?? 'portion',
-      unitPrices: ((o as unknown as { unitPrices?: Record<string, number> } | undefined)?.unitPrices
-        ? Object.fromEntries(Object.entries((o as unknown as { unitPrices: Record<string, number> }).unitPrices).map(([k, v]) => [k, String(v)]))
-        : {}),
       maxQty: (() => { const n = (o as unknown as { maxQty?: number } | undefined)?.maxQty; return n != null && n > 0 ? String(n) : ''; })(),
     });
     setAiPreview('');
@@ -371,18 +354,16 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       if (mrp !== null) payload.mrp = mrp;
       // Image override: non-empty URL saves, empty string CLEARS it (back to bundled photo).
       payload.image = img;
-      // Unit + price-basis override: saved to product_prices so the app picks it up live.
+      // Simple unit system: ticked options + auto base (no confusion).
+      // unit = base of the ticked mode (1 kg / Full / 1 pc), priceBasis = same.
       const units = editing.unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
       if (!units.length) { setToast({ message: 'Quantity option tick karo (kam se kam 1)', type: 'error' }); setSaving(false); return; }
-      payload.unit = editing.unit.trim() || 'portion';
+      const eMode = unitModeForOptions(editing.unitOptions, CATALOG.find((c) => c.id === editing.id)?.category ?? 'cooked_food');
+      const eBase = UNIT_MODE_BASE[eMode];
+      payload.unit = eBase;
       payload.unitOptions = units;
-      payload.priceBasis = editing.priceBasis.trim() || editing.unit.trim() || 'portion';
-      const ePrices: Record<string, number> = {};
-      for (const [k, v] of Object.entries(editing.unitPrices)) {
-        const n = Number(v);
-        if (v !== '' && Number.isFinite(n) && n >= 0) ePrices[k] = n;
-      }
-      payload.unitPrices = ePrices;
+      payload.priceBasis = eBase;
+      payload.unitPrices = {};
       const eMax = Number(editing.maxQty);
       if (editing.maxQty.trim() !== '' && Number.isFinite(eMax) && eMax > 0) payload.maxQty = Math.floor(eMax);
       await setDoc(doc(db, 'product_prices', editing.id), payload, { merge: true });
@@ -423,12 +404,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       image: r.image ?? '',
       isVeg: r.isVeg ?? true,
       isRawItem: r.isRawItem ?? false,
-      unit: r.unit ?? 'portion',
       unitOptions: (r.unitOptions ?? ['1 portion']).join(', '),
-      priceBasis: r.priceBasis ?? r.unit ?? 'portion',
-      unitPrices: r.unitPrices
-        ? Object.fromEntries(Object.entries(r.unitPrices).map(([k, v]) => [k, String(v)]))
-        : {},
       maxQty: r.maxQty != null && r.maxQty > 0 ? String(r.maxQty) : '',
       freshnessTag: r.freshnessTag ?? '',
       isPopular: r.isPopular ?? false,
@@ -527,14 +503,10 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         image: form.image.trim(),
         isVeg: form.isVeg,
         isRawItem: form.isRawItem,
-        unit: form.unit.trim() || 'portion',
+        unit: UNIT_MODE_BASE[unitModeForOptions(form.unitOptions, form.category)],
         unitOptions: units.length ? units : ['1 portion'],
-        priceBasis: form.priceBasis.trim() || form.unit.trim() || 'portion',
-        unitPrices: Object.fromEntries(
-          Object.entries(form.unitPrices)
-            .map(([k, v]) => [k, Number(v)])
-            .filter(([, n]) => Number.isFinite(n) && (n as number) >= 0),
-        ),
+        priceBasis: UNIT_MODE_BASE[unitModeForOptions(form.unitOptions, form.category)],
+        unitPrices: {},
         ...(form.maxQty.trim() !== '' && Number.isFinite(Number(form.maxQty)) && Number(form.maxQty) > 0
           ? { maxQty: Math.floor(Number(form.maxQty)) }
           : {}),
@@ -643,6 +615,60 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
     setDeleting(null);
   };
 
+  // ── ONE-TAP MIGRATE: all custom_products → simple unit system ─────────────
+  // kilo (veg/grocery/dairy) → 1 kg + [250g,500g,1kg,2kg,5kg] + max 10
+  // portion (cooked) → Full + [Half,Full] + max 4
+  // piece (eggs/non-veg) → 1 pc + [1pc,2pcs,4pcs] + max 12
+  // Existing maxQty is never overwritten. One-tap, audited.
+  const [migrating, setMigrating] = useState(false);
+  const handleMigrateUnits = async () => {
+    if (migrating) return;
+    if (!window.confirm('Saare items simple unit system par migrate ho jayenge (kilo/portion/piece + max limit). Existing maxQty nahi badlega. Continue?')) return;
+    setMigrating(true);
+    try {
+      const { getDocs } = await import('firebase/firestore');
+      const snap = await getDocs(collection(db, 'custom_products'));
+      let done = 0;
+      for (const d of snap.docs) {
+        const m = d.data() as CustomRow;
+        const n = (m.name ?? '').toLowerCase();
+        const c = (m.category ?? '').toLowerCase();
+        let mode: 'kilo' | 'portion' | 'piece' = 'portion';
+        if (['vegetables', 'fruits', 'grocery', 'dals_pulses', 'dairy'].includes(c)) mode = 'kilo';
+        else if (['eggs_meat', 'non_veg'].includes(c)) mode = 'piece';
+        else if (/juice|shake|lassi|milk|water|drink|soda|tea|coffee/.test(n)) mode = 'kilo';
+        else if (/egg|momo/.test(n)) mode = 'piece';
+        const patch: Record<string, unknown> = { updatedAt: serverTimestamp(), unitPrices: {} };
+        if (mode === 'kilo') {
+          Object.assign(patch, { unit: '1 kg', unitOptions: ['250g', '500g', '1 kg', '2 kg', '5 kg'], priceBasis: '1 kg' });
+          if (m.maxQty == null) patch.maxQty = 10;
+        } else if (mode === 'piece') {
+          Object.assign(patch, { unit: '1 pc', unitOptions: ['1 pc', '2 pcs', '4 pcs'], priceBasis: '1 pc' });
+          if (m.maxQty == null) patch.maxQty = 12;
+        } else {
+          Object.assign(patch, { unit: 'Full', unitOptions: ['Half', 'Full'], priceBasis: 'Full' });
+          if (m.maxQty == null) patch.maxQty = 4;
+        }
+        await updateDoc(doc(db, 'custom_products', d.id), patch);
+        done++;
+      }
+      await addDoc(collection(db, 'admin_audit_logs'), {
+        adminPhone: user?.uid ?? 'admin',
+        adminName: adminName || 'Admin',
+        action: 'unitsMigrated',
+        targetId: 'all',
+        targetType: 'products',
+        metadata: { count: done },
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+      setToast({ message: `${done} items migrated ✅ — app me chips + max limit live`, type: 'success' });
+    } catch (e: unknown) {
+      setToast({ message: e instanceof Error ? e.message : 'Migrate failed', type: 'error' });
+    }
+    setMigrating(false);
+  };
+
   if (loading) return <div className="page"><div className="skeleton" style={{ height: 400 }} /></div>;
 
   return (
@@ -659,6 +685,9 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
             ) : null}
           </div>
           <button className="btn btn-primary" onClick={openNewItem}>➕ Add New Item</button>
+          <button className="btn btn-sm btn-ghost" disabled={migrating} onClick={() => void handleMigrateUnits()} title="Saare items ko simple kilo/portion/piece system par migrate karo">
+            {migrating ? '⏳ Migrating…' : '⚡ Migrate all units'}
+          </button>
         </div>
         <div className="filters-row">
           <button className={`chip ${tab === 'custom' ? 'chip-active' : ''}`} onClick={() => setTab('custom')}>
@@ -841,16 +870,13 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
               </p>
             )}
 
-            {/* ── UNIT OVERRIDE (tick, no typing) ── */}
+            {/* ── UNIT (simple: kilo/portion/piece → tick → max) ── */}
             <UnitPicker
               category={CATALOG.find((c) => c.id === editing.id)?.category ?? 'cooked_food'}
-              unit={editing.unit}
               unitOptions={editing.unitOptions}
-              priceBasis={editing.priceBasis}
-              unitPrices={editing.unitPrices}
               basePrice={editing.price}
               maxQty={editing.maxQty}
-              onChange={(unit, unitOptions, priceBasis, unitPrices, maxQty) => setEditing({ ...editing, unit, unitOptions, priceBasis, unitPrices, maxQty })}
+              onChange={(unitOptions, maxQty) => setEditing({ ...editing, unitOptions, maxQty })}
             />
 
             {/* ── PHOTO OVERRIDE ── */}
@@ -968,7 +994,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                 onChange={(e) => {
                   const cat = e.target.value;
                   const preset = presetForCategory(cat);
-                  setForm({ ...form, category: cat, unit: defaultUnitForCategory(cat), unitOptions: preset.join(', ') });
+                  setForm({ ...form, category: cat, unitOptions: preset.join(', ') });
                 }}
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
               >
@@ -1087,13 +1113,10 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
 
                 <UnitPicker
                   category={form.category}
-                  unit={form.unit}
                   unitOptions={form.unitOptions}
-                  priceBasis={form.priceBasis}
-                  unitPrices={form.unitPrices}
                   basePrice={form.price}
                   maxQty={form.maxQty}
-                  onChange={(unit, unitOptions, priceBasis, unitPrices, maxQty) => setForm({ ...form, unit, unitOptions, priceBasis, unitPrices, maxQty })}
+                  onChange={(unitOptions, maxQty) => setForm({ ...form, unitOptions, maxQty })}
                 />
 
                 <div className="form-group">
