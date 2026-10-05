@@ -50,6 +50,22 @@ export interface OrderRecord {
   pincode?: string;
   locality?: string;
   isDeleted?: boolean;
+  isConvertedFromCOD?: boolean;
+  adminRemark?: string;
+  adminNotes?: string;
+  paymentConversion?: {
+    isConvertedFromCOD?: boolean;
+    convertedAt?: Timestamp | string | null;
+    initiatedBy?: string;
+    gatewayTxnId?: string;
+    gatewayProvider?: string;
+    bankUtr?: string;
+    bankReferenceId?: string;
+    amountPaid?: number;
+    previousPaymentMethod?: string;
+    status?: string;
+    remark?: string;
+  };
 }
 
 export interface AuditLog {

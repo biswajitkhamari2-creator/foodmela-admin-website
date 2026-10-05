@@ -22,7 +22,8 @@ async function mintAdminToken(): Promise<string | null> {
       body: JSON.stringify({}),
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as { apiToken?: string };
+    const data = (await res.json().catch(() => null)) as { apiToken?: string } | null;
+    if (!data) return null;
     if (data.apiToken) {
       _cached = data.apiToken;
       try { sessionStorage.setItem('fm_admin_api_token', data.apiToken); } catch { /* ignore */ }

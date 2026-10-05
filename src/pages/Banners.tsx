@@ -11,7 +11,8 @@ async function uploadToImgBB(dataUrl: string, apiKey: string): Promise<string> {
   body.set('image', base64);
   const res = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body });
   if (!res.ok) throw new Error(`ImgBB upload error ${res.status}`);
-  const data = (await res.json()) as { data?: { url?: string; display_url?: string }; error?: { message?: string } };
+  const data = (await res.json().catch(() => null)) as { data?: { url?: string; display_url?: string }; error?: { message?: string } } | null;
+  if (!data) throw new Error(`ImgBB upload error ${res.status} (empty response)`);
   const url = data.data?.display_url ?? data.data?.url;
   if (!url) throw new Error(data.error?.message ?? 'ImgBB returned no URL');
   return url;

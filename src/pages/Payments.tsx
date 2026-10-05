@@ -75,7 +75,8 @@ export default function Payments({ globalSearch }: { globalSearch?: string }) {
     setErr('');
     try {
       const res = await adminFetch('/api/admin/payments?limit=300');
-      const data = (await res.json()) as { success: boolean; payments?: PayRec[]; error?: string };
+      const data = (await res.json().catch(() => null)) as { success: boolean; payments?: PayRec[]; error?: string } | null;
+      if (!data) throw new Error(`Server ${res.status} — empty response (ek baar logout karke dobara login karo)`);
       if (!res.ok || !data.success) {
         const hint = res.status === 403
           ? ' (admin token nahi bana — ek baar logout karke dobara login karo)'
@@ -97,8 +98,8 @@ export default function Payments({ globalSearch }: { globalSearch?: string }) {
     setVerifyMsg('');
     try {
       const res = await adminFetch(`/api/admin/payments/verify/${encodeURIComponent(orderId)}`);
-      const data = (await res.json()) as { success: boolean; state?: string; error?: string };
-      if (!res.ok || !data.success) throw new Error(data.error || `Server ${res.status}`);
+      const data = (await res.json().catch(() => null)) as { success: boolean; state?: string; error?: string } | null;
+      if (!data || !res.ok || !data.success) throw new Error(data?.error || `Server ${res.status}`);
       setVerifyMsg(`Live status for ${orderId}: ${data.state ?? 'unknown'}`);
       await load();
     } catch (e) {
@@ -121,8 +122,8 @@ export default function Payments({ globalSearch }: { globalSearch?: string }) {
         method: 'POST',
         body: JSON.stringify({ amount: amt, reason: refundReason.trim() }),
       });
-      const data = (await res.json()) as { success: boolean; refundId?: string; state?: string; error?: string };
-      if (!res.ok || !data.success) throw new Error(data.error || `Server ${res.status}`);
+      const data = (await res.json().catch(() => null)) as { success: boolean; refundId?: string; state?: string; error?: string } | null;
+      if (!data || !res.ok || !data.success) throw new Error(data?.error || `Server ${res.status}`);
       setRefundMsg(`✅ Refund shuru: ₹${amt} (ID: ${data.refundId ?? '—'}). Paise 24–48h me customer ko milenge.`);
       setRefundFor(null);
       setRefundAmt('');

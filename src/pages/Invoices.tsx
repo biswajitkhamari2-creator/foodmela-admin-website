@@ -8,14 +8,41 @@ import { useCustomerNames, freshName } from '../hooks/useCustomerNames';
 
 const PAGE_SIZE = 20;
 
-interface BillLine { subtotal: number; deliveryFee: number; platformFee: number; total: number }
+interface BillLine {
+  subtotal: number;
+  deliveryFee: number;
+  packagingFee: number;
+  platformFee: number;
+  discount: number;
+  taxes: number;
+  promoCode: string;
+  total: number;
+}
 
-function billOf(o: OrderRecord): BillLine {
-  const total = Number(o.totalAmount ?? 0);
-  const platformFee = total > 0 ? 7 : 0;
-  const deliveryFee = total >= 299 || total === 0 ? 0 : 30;
-  const subtotal = Math.max(0, total - platformFee - deliveryFee);
-  return { subtotal, deliveryFee, platformFee, total };
+function billOf(o: any): BillLine {
+  const total = Number(o.totalAmount ?? o.grandTotal ?? o.total ?? 0);
+  const items = Array.isArray(o.items) ? o.items : [];
+  const calculatedSubtotal = items.length > 0
+    ? items.reduce((acc: number, it: any) => acc + ((it.price ?? it.unitPrice ?? it.rate ?? 0) * (it.quantity ?? it.qty ?? 1)), 0)
+    : (o.subtotal ?? o.itemTotal ?? o.itemsTotal ?? o.netAmount ?? (total > 0 ? Math.max(0, total - 56) : 0));
+  
+  const deliveryFee = Number(o.deliveryFee ?? o.deliveryCharge ?? o.delivery_fee ?? o.deliveryRate ?? (total >= 299 || total === 0 ? 0 : 39));
+  const packagingFee = Number(o.packingFee ?? o.packagingFee ?? o.packingCharge ?? o.packagingCharge ?? o.restaurantPackagingFee ?? 10);
+  const platformFee = Number(o.handlingFee ?? o.handlingCharge ?? o.platformFee ?? o.convenienceFee ?? 7);
+  const discount = Number(o.discount ?? o.discountAmount ?? o.promoDiscount ?? o.couponDiscount ?? 0);
+  const taxes = Number(o.tax ?? o.taxes ?? o.gst ?? Math.round(calculatedSubtotal * 0.05));
+  const promoCode = o.promoCode || o.couponCode || o.coupon || '';
+
+  return {
+    subtotal: calculatedSubtotal,
+    deliveryFee,
+    packagingFee,
+    platformFee,
+    discount,
+    taxes,
+    promoCode,
+    total,
+  };
 }
 
 function isCod(o: OrderRecord): boolean {
@@ -273,11 +300,19 @@ function InvoicePreview({ order: o, customerName, onClose }: { order: OrderRecor
           </div>
           <div className="inv-items-line"><strong>Items:</strong> {itemsText(o)}</div>
           <div className="inv-calc-box inv-calc-full">
-            <div className="inv-calc-row"><span>Items Subtotal</span><span>₹{b.subtotal}</span></div>
-            <div className="inv-calc-row"><span>Delivery Charge</span><span>{b.deliveryFee === 0 ? 'FREE' : `₹${b.deliveryFee}`}</span></div>
-            <div className="inv-calc-row"><span>Platform Fee</span><span>₹{b.platformFee}</span></div>
+            <div className="inv-calc-row"><span>Items Subtotal / Food Total</span><span>₹{b.subtotal}</span></div>
+            <div className="inv-calc-row"><span>Delivery Partner Fee</span><span>{b.deliveryFee === 0 ? 'FREE' : `₹${b.deliveryFee}`}</span></div>
+            <div className="inv-calc-row"><span>Restaurant Packaging & Packing</span><span>₹{b.packagingFee}</span></div>
+            <div className="inv-calc-row"><span>Platform & Handling Fee</span><span>₹{b.platformFee}</span></div>
+            {b.taxes > 0 && <div className="inv-calc-row"><span>GST & Taxes (5%)</span><span>₹{b.taxes}</span></div>}
+            {b.discount > 0 && (
+              <div className="inv-calc-row" style={{ color: '#059669', fontWeight: 600 }}>
+                <span>Discount Savings {b.promoCode ? `(${b.promoCode})` : ''}</span>
+                <span>-₹{b.discount}</span>
+              </div>
+            )}
             <div className="inv-divider-thin" />
-            <div className="inv-calc-row total"><span>Grand Total</span><span className="grand-price">₹{b.total}</span></div>
+            <div className="inv-calc-row total"><span>Grand Total to Pay</span><span className="grand-price">₹{b.total}</span></div>
           </div>
           <div className="inv-pay-row">
             <span className={`inv-pay-pill ${cod ? 'pay-cod' : 'pay-prepaid'}`}>{cod ? '💵 Cash on Delivery' : '📱 Online / Prepaid (UPI)'}</span>

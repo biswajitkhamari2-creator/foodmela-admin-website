@@ -43,7 +43,9 @@ export default function Login() {
       <div className="login-card">
         <div className="login-brand">
           <div className="login-logo-wrap">
-            <div className="login-logo">🍽️</div>
+            <img src="/food_mela_logo.png" alt="Food Mela" className="login-logo-img" onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = 'none';
+            }} />
           </div>
           <h1>FOOD MELA</h1>
           <p>Operations Center</p>
@@ -63,7 +65,7 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@foodmela.com"
+              placeholder="admin@foodmela.online"
               autoComplete="email"
             />
           </label>
