@@ -11,6 +11,7 @@ import OrderDetail from './pages/OrderDetail';
 import Invoices from './pages/Invoices';
 import Payments from './pages/Payments';
 import Products from './pages/Products';
+import Categories from './pages/Categories';
 import Banners from './pages/Banners';
 import Promos from './pages/Promos';
 import Customers from './pages/Customers';
@@ -23,9 +24,11 @@ import ActivityLogs from './pages/ActivityLogs';
 import CallRecordings from './pages/CallRecordings';
 import Settings from './pages/Settings';
 
+import AdminSplashLoader from './components/AdminSplashLoader';
+
 function Protected({ children }: { children: React.ReactNode }) {
   const { isAdmin, loading } = useAuth();
-  if (loading) return <div className="loading-screen"><div className="spinner" /> Loading...</div>;
+  if (loading) return <AdminSplashLoader message="Verifying secure administrator session..." />;
   if (!isAdmin) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
@@ -73,6 +76,7 @@ function AdminLayout() {
     '/invoices': { title: 'Invoices', subtitle: 'Billing tracking — collected, pending, COD vs prepaid' },
     '/payments': { title: 'Payments', subtitle: 'Every gateway transaction — PhonePe / PayU / COD, no gateway login needed' },
     '/products': { title: 'Product Prices', subtitle: 'Dynamic pricing — updates the customer app on refresh' },
+    '/categories': { title: 'Categories', subtitle: 'App sections — add pharma, travel, insurance with static or animated logos' },
     '/banners': { title: 'Festival Banners', subtitle: 'Home-screen campaigns — no app update needed' },
     '/promos': { title: 'Promo Codes', subtitle: 'Discount coupons — live on customer site instantly' },
     '/customers': { title: 'Customers', subtitle: 'Customer management' },
@@ -140,6 +144,7 @@ function AdminLayout() {
             <Route path="/invoices" element={<Invoices globalSearch={globalSearch} />} />
             <Route path="/payments" element={<Payments globalSearch={globalSearch} />} />
             <Route path="/products" element={<Products globalSearch={globalSearch} />} />
+            <Route path="/categories" element={<Categories />} />
             <Route path="/banners" element={<Banners globalSearch={globalSearch} />} />
             <Route path="/promos" element={<Promos globalSearch={globalSearch} />} />
             <Route path="/customers" element={<Customers globalSearch={globalSearch} />} />
@@ -159,14 +164,17 @@ function AdminLayout() {
   );
 }
 
-// Single-domain build: admin is served from foodmela.online/admin.
-// basename keeps all links (/orders, /login…) under /admin in production,
-// while local `vite dev` (served at /) keeps working unchanged.
-const BASENAME = import.meta.env.PROD ? '/admin' : undefined;
+// Detect whether the app is hosted under /admin or root /
+const getBasename = () => {
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    return '/admin';
+  }
+  return undefined;
+};
 
 export default function App() {
   return (
-    <BrowserRouter basename={BASENAME}>
+    <BrowserRouter basename={getBasename()}>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginWrapper />} />
@@ -179,7 +187,7 @@ export default function App() {
 
 function LoginWrapper() {
   const { isAdmin, loading } = useAuth();
-  if (loading) return <div className="loading-screen"><div className="spinner" /> Loading...</div>;
+  if (loading) return <AdminSplashLoader message="Connecting to Food Mela Cloud..." />;
   if (isAdmin) return <Navigate to="/" replace />;
   return <Login />;
 }

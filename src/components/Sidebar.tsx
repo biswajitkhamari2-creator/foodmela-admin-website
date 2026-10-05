@@ -6,6 +6,7 @@ const navItems = [
   { to: '/invoices', label: 'Invoices', icon: '🧮' },
   { to: '/payments', label: 'Payments', icon: '💳' },
   { to: '/products', label: 'Prices', icon: '🏷️' },
+  { to: '/categories', label: 'Categories', icon: '🗂️' },
   { to: '/banners', label: 'Banners', icon: '🎉' },
   { to: '/promos', label: 'Promo Codes', icon: '🏷️' },
   { to: '/customers', label: 'Customers', icon: '👥' },
@@ -19,7 +20,7 @@ const navItems = [
   { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];
 
-const logoUrl = `${import.meta.env.BASE_URL}foodmela-f-logo.webp`;
+const logoUrl = '/food_mela_logo.png';
 
 export default function Sidebar({
   collapsed,
