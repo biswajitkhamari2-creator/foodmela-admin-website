@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '../utils/adminApi';
 import { EmptyState, Pagination } from '../components/UI';
+import FlipCard from '../components/FlipCard';
 import { formatOrderId } from '../utils/helpers';
 
 const PAGE_SIZE = 20;
@@ -62,6 +63,7 @@ export default function Payments({ globalSearch }: { globalSearch?: string }) {
   const [page, setPage] = useState(1);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [verifyMsg, setVerifyMsg] = useState('');
+  const [flipFor, setFlipFor] = useState<PayRec | null>(null);
   const [refundFor, setRefundFor] = useState<PayRec | null>(null);
   const [refundAmt, setRefundAmt] = useState('');
   const [refundReason, setRefundReason] = useState('');
@@ -243,7 +245,10 @@ export default function Payments({ globalSearch }: { globalSearch?: string }) {
                   const isPhonePe = (r.gateway || '').toLowerCase().includes('phonepe');
                   return (
                     <tr key={`${r.id}-${r.at}`}>
-                      <td><span className="order-id">{formatOrderId(r.orderId)}</span><div className="cell-sub">{r.gatewayRef || ''}</div></td>
+                      <td>
+                        <span className="order-id flip-order-link" onClick={() => setFlipFor(r)} title="Tap for flip-card details">{formatOrderId(r.orderId)}</span>
+                        <div className="cell-sub">{r.gatewayRef || ''}</div>
+                      </td>
                       <td>
                         <div className="cell-main">{r.customerName || '—'}</div>
                         <div className="cell-sub">{r.phone || ''}</div>
@@ -294,6 +299,42 @@ export default function Payments({ globalSearch }: { globalSearch?: string }) {
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </>
       )}
+
+      {flipFor && (() => {
+        const b = statusBadge(flipFor.payStatus);
+        return (
+          <FlipCard
+            onClose={() => setFlipFor(null)}
+            front={(
+              <>
+                <div style={{ fontSize: 12, color: '#4ADE80', fontWeight: 700, letterSpacing: 2 }}>💳 PAYMENT</div>
+                <h2 style={{ margin: '6px 0', fontSize: 24 }}>{formatOrderId(flipFor.orderId)}</h2>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>{flipFor.customerName || '—'}</div>
+                <div style={{ fontSize: 12, color: '#A7F3D0' }}>{flipFor.phone || ''}</div>
+                <div style={{ fontSize: 32, fontWeight: 800, margin: '12px 0 4px' }}>₹{Number(flipFor.amount || 0).toLocaleString('en-IN')}</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 13 }}>{gwBadge(flipFor.gateway)}</span>
+                  <span className={`inv-pay-pill ${b.cls}`}>{b.label}</span>
+                </div>
+              </>
+            )}
+            back={(
+              <>
+                <h3 style={{ margin: '0 0 10px' }}>🧾 Transaction details</h3>
+                <div className="flip-row"><span>Order</span><b>{formatOrderId(flipFor.orderId)}</b></div>
+                <div className="flip-row"><span>Customer</span><b>{flipFor.customerName || '—'}</b></div>
+                <div className="flip-row"><span>Phone</span><b>{flipFor.phone || '—'}</b></div>
+                <div className="flip-row"><span>Amount</span><b>₹{Number(flipFor.amount || 0).toLocaleString('en-IN')}</b></div>
+                <div className="flip-row"><span>Gateway</span><b>{gwBadge(flipFor.gateway)}</b></div>
+                <div className="flip-row"><span>Status</span><b>{b.label}</b></div>
+                <div className="flip-row"><span>Gateway ref</span><b style={{ wordBreak: 'break-all' }}>{flipFor.gatewayRef || '—'}</b></div>
+                <div className="flip-row"><span>Time</span><b>{fmtDate(flipFor.at)}</b></div>
+                <div className="flip-row"><span>Record ID</span><b style={{ wordBreak: 'break-all' }}>{flipFor.id}</b></div>
+              </>
+            )}
+          />
+        );
+      })()}
 
       {refundFor && (
         <div className="dialog-overlay" onClick={() => !refunding && setRefundFor(null)}>

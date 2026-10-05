@@ -895,6 +895,20 @@ a { color: inherit; }
 .chip:hover { box-shadow: 0 0 14px rgba(241,90,36,0.45); transform: translateY(-1px); }
 .btn-sm { padding: 6px 12px; font-size: 11px; border-radius: 8px; }
 
+/* ─── FLIP CARD (3D tap-to-flip details) ───────────────────────────────────── */
+.flip-scene { perspective: 1200px; cursor: pointer; }
+.flip-inner { position: relative; width: 100%; min-height: 300px; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.16,1,0.3,1); }
+.flip-scene.flipped .flip-inner { transform: rotateY(180deg); }
+.flip-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 20px; padding: 24px; box-shadow: 0 0 28px rgba(241,90,36,0.35), 0 12px 40px rgba(15,23,42,0.25); }
+.flip-front { background: linear-gradient(135deg, #1C2B23 0%, #0A1F16 60%, #060D0A 100%); color: #fff; border: 1.5px solid rgba(74,222,128,0.3); }
+.flip-back { position: absolute; inset: 0; transform: rotateY(180deg); background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%); color: #431407; border: 1.5px solid rgba(241,90,36,0.4); overflow-y: auto; max-height: 420px; }
+.flip-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed rgba(67,20,7,0.15); font-size: 13px; }
+.flip-row:last-child { border-bottom: none; }
+.flip-row b { font-weight: 700; }
+.flip-hint { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+.flip-order-link { color: #4ADE80; text-decoration: underline; cursor: pointer; font-weight: 700; }
+.flip-order-link:hover { color: #86EFAC; }
+
 /* ─── EMPTY / SKELETON — PREMIUM ─────────────────────────────────────────── */
 .empty-state { text-align: center; padding: 56px 24px; }
 .empty-icon {

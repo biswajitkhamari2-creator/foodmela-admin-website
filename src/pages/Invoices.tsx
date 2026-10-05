@@ -3,6 +3,7 @@ import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestor
 import { db } from '../firebase';
 import { tsToDate, fmtDateTime, formatOrderId } from '../utils/helpers';
 import { StageBadge, EmptyState, Pagination } from '../components/UI';
+import FlipCard from '../components/FlipCard';
 import type { OrderRecord } from '../types';
 import { useCustomerNames, freshName } from '../hooks/useCustomerNames';
 
@@ -80,6 +81,7 @@ export default function Invoices({ globalSearch }: { globalSearch?: string }) {
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [preview, setPreview] = useState<OrderRecord | null>(null);
+  const [flipFor, setFlipFor] = useState<OrderRecord | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(300));
@@ -229,7 +231,7 @@ export default function Invoices({ globalSearch }: { globalSearch?: string }) {
                   const cod = isCod(o);
                   return (
                     <tr key={o.id}>
-                      <td><span className="order-id">{invoiceNo(o)}</span><div className="cell-sub">{formatOrderId(o.orderId ?? o.id)}</div></td>
+                      <td><span className="order-id flip-order-link" onClick={() => setFlipFor(o)} title="Tap for flip-card details">{invoiceNo(o)}</span><div className="cell-sub">{formatOrderId(o.orderId ?? o.id)}</div></td>
                       <td>
                         <div className="cell-main">{freshName(names, o.customerPhone, o.customerName)}</div>
                         <div className="cell-sub">{o.customerPhone || ''}</div>
@@ -249,6 +251,44 @@ export default function Invoices({ globalSearch }: { globalSearch?: string }) {
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </>
       )}
+
+      {flipFor && (() => {
+        const b = billOf(flipFor);
+        const cod = isCod(flipFor);
+        return (
+          <FlipCard
+            onClose={() => setFlipFor(null)}
+            front={(
+              <>
+                <div style={{ fontSize: 12, color: '#4ADE80', fontWeight: 700, letterSpacing: 2 }}>🧾 INVOICE</div>
+                <h2 style={{ margin: '6px 0', fontSize: 24 }}>{invoiceNo(flipFor)}</h2>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>{freshName(names, flipFor.customerPhone, flipFor.customerName)}</div>
+                <div style={{ fontSize: 12, color: '#A7F3D0' }}>{flipFor.customerPhone || ''}</div>
+                <div style={{ fontSize: 32, fontWeight: 800, margin: '12px 0 4px' }}>₹{b.total.toLocaleString('en-IN')}</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span className={`inv-pay-pill ${cod ? 'pay-cod' : 'pay-prepaid'}`}>{cod ? '💵 COD' : '📱 Prepaid'}</span>
+                  <span style={{ fontSize: 12, color: '#A7F3D0' }}>{fmtDateTime(tsToDate(flipFor.createdAt))}</span>
+                </div>
+              </>
+            )}
+            back={(
+              <>
+                <h3 style={{ margin: '0 0 10px' }}>🧾 Bill breakup</h3>
+                <div className="flip-row"><span>Invoice</span><b>{invoiceNo(flipFor)}</b></div>
+                <div className="flip-row"><span>Order</span><b>{formatOrderId(flipFor.orderId ?? flipFor.id)}</b></div>
+                <div className="flip-row"><span>Items</span><b>{itemsText(flipFor)}</b></div>
+                <div className="flip-row"><span>Subtotal</span><b>₹{b.subtotal.toLocaleString('en-IN')}</b></div>
+                <div className="flip-row"><span>Delivery</span><b>₹{b.deliveryFee.toLocaleString('en-IN')}</b></div>
+                <div className="flip-row"><span>Packaging</span><b>₹{b.packagingFee.toLocaleString('en-IN')}</b></div>
+                <div className="flip-row"><span>Platform fee</span><b>₹{b.platformFee.toLocaleString('en-IN')}</b></div>
+                <div className="flip-row"><span>Taxes</span><b>₹{b.taxes.toLocaleString('en-IN')}</b></div>
+                {b.discount > 0 && <div className="flip-row"><span>Discount{b.promoCode ? ` (${b.promoCode})` : ''}</span><b>−₹{b.discount.toLocaleString('en-IN')}</b></div>}
+                <div className="flip-row"><span>Total</span><b>₹{b.total.toLocaleString('en-IN')}</b></div>
+              </>
+            )}
+          />
+        );
+      })()}
 
       {preview && <InvoicePreview order={preview} customerName={freshName(names, preview.customerPhone, preview.customerName)} onClose={() => setPreview(null)} />}
     </div>
