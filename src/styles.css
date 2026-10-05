@@ -447,24 +447,28 @@ a { color: inherit; }
 .topbar-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .global-search {
   display: flex; align-items: center; gap: 10px;
-  background: #F8FAFC;
-  border: 1.5px solid #E2E8F0;
+  background: #101418;
+  border: 1.5px solid #2a3340;
   border-radius: 12px;
   padding: 8px 14px;
   transition: all 0.2s cubic-bezier(0.16,1,0.3,1);
   min-width: 0;
+  box-shadow: 0 0 12px rgba(241,90,36,0.15);
 }
 .global-search:focus-within {
-  background: #fff;
+  background: #141a21;
   border-color: #F15A24;
-  box-shadow: 0 0 0 3px rgba(241,90,36,0.10);
+  box-shadow: 0 0 20px rgba(241,90,36,0.4), 0 0 0 3px rgba(241,90,36,0.10);
 }
-.global-search .search-icon { font-size: 13px; opacity: 0.6; flex-shrink: 0; }
+.global-search .search-icon { font-size: 13px; opacity: 0.8; flex-shrink: 0; }
 .global-search input {
   border: none; background: transparent; outline: none;
-  font-size: 12.5px; width: 240px; color: #0F172A; font-weight: 500;
+  font-size: 12.5px; width: 240px; color: #f1f5f9; font-weight: 500;
 }
-.global-search input::placeholder { color: #94A3B8; font-weight: 400; }
+.global-search input::placeholder { color: #7d8aa0; font-weight: 400; }
+.global-search .search-clear { border: none; background: rgba(255,255,255,0.08); color: #f1f5f9; border-radius: 50%; width: 22px; height: 22px; font-size: 11px; cursor: pointer; line-height: 1; }
+.global-search .search-clear:hover { background: rgba(255,255,255,0.18); }
+.global-search .search-hint { color: #7d8aa0; }
 .live-badge {
   display: flex; align-items: center; gap: 7px;
   background: #ECFDF5;
