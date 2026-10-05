@@ -576,6 +576,30 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
     }
   };
 
+  // ── STOCK: one-tap In stock / Out of stock ────────────────────────────────
+  // Bundled items → product_prices/{id}.isOutOfStock (live listener picks it
+  // up instantly). Custom items → custom_products/{id}.isOutOfStock.
+  // Customer app greys the card + shows OUT OF STOCK + blocks add-to-cart.
+  const handleToggleStock = async (id: string, name: string, currentlyOut: boolean, bundled: boolean) => {
+    try {
+      const col = bundled ? 'product_prices' : 'custom_products';
+      await setDoc(doc(db, col, id), { isOutOfStock: !currentlyOut, updatedAt: serverTimestamp() }, { merge: true });
+      await addDoc(collection(db, 'admin_audit_logs'), {
+        adminPhone: user?.uid ?? 'admin',
+        adminName: adminName || 'Admin',
+        action: currentlyOut ? 'productBackInStock' : 'productOutOfStock',
+        targetId: id,
+        targetType: 'product',
+        metadata: { name },
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+      setToast({ message: currentlyOut ? `"${name}" back IN STOCK ✅` : `"${name}" OUT OF STOCK ⛔`, type: 'success' });
+    } catch (e: unknown) {
+      setToast({ message: e instanceof Error ? e.message : 'Action failed', type: 'error' });
+    }
+  };
+
   const handleDeleteItem = async () => {
     if (!deleting) return;
     try {
@@ -660,6 +684,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                   const mrp = o?.mrp;
                   const hasOverride = o !== undefined;
                   const customImg = o?.image?.trim() ? o.image : '';
+                  const isOut = (o as { isOutOfStock?: boolean } | undefined)?.isOutOfStock === true;
                   return (
                     <tr key={c.id}>
                       <td>
@@ -683,8 +708,16 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                         )}
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {isOut && <span className="badge badge-blocked">⛔ OUT</span>}
                           <button className="btn btn-sm btn-ghost" onClick={() => openEdit(c)}>Edit price + photo</button>
+                          <button
+                            className={`btn btn-sm ${isOut ? 'btn-success' : 'btn-danger'}`}
+                            title={isOut ? 'Back in stock' : 'Mark out of stock'}
+                            onClick={() => handleToggleStock(c.id, c.name, isOut, true)}
+                          >
+                            {isOut ? '✅ In stock' : '⛔ Out of stock'}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -723,12 +756,24 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                         <span className="cell-sub" style={{ textDecoration: 'line-through', marginLeft: 8 }}>₹{r.mrp.toLocaleString('en-IN')}</span>
                       )}
                     </td>
-                    <td><span className={`badge ${r.isActive ?? true ? 'badge-active' : 'badge-blocked'}`}>{(r.isActive ?? true) ? 'LIVE' : 'HIDDEN'}</span></td>
+                    <td>
+                      <span className={`badge ${r.isActive ?? true ? 'badge-active' : 'badge-blocked'}`}>{(r.isActive ?? true) ? 'LIVE' : 'HIDDEN'}</span>
+                      {(r as { isOutOfStock?: boolean }).isOutOfStock === true && (
+                        <span className="badge badge-blocked" style={{ marginLeft: 6 }}>⛔ OUT</span>
+                      )}
+                    </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <button className="btn btn-sm btn-ghost" onClick={() => openEditItem(r)}>Edit</button>
                         <button className={`btn btn-sm ${(r.isActive ?? true) ? 'btn-danger' : 'btn-success'}`} onClick={() => handleToggleItem(r)}>
                           {(r.isActive ?? true) ? 'Hide' : 'Show'}
+                        </button>
+                        <button
+                          className={`btn btn-sm ${(r as { isOutOfStock?: boolean }).isOutOfStock === true ? 'btn-success' : 'btn-danger'}`}
+                          title={(r as { isOutOfStock?: boolean }).isOutOfStock === true ? 'Back in stock' : 'Mark out of stock'}
+                          onClick={() => handleToggleStock(r.id, r.name ?? r.id, (r as { isOutOfStock?: boolean }).isOutOfStock === true, false)}
+                        >
+                          {(r as { isOutOfStock?: boolean }).isOutOfStock === true ? '✅ In stock' : '⛔ Out of stock'}
                         </button>
                         <button className="btn btn-sm btn-ghost" onClick={() => setDeleting(r)}>Delete</button>
                       </div>
