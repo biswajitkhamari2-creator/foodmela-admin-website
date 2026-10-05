@@ -872,15 +872,21 @@ a { color: inherit; }
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   white-space: nowrap;
 }
-.btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15,23,42,0.08); }
-.btn:active { transform: translateY(0); box-shadow: none; }
+.btn:hover { transform: translateY(-1px) scale(1.02); box-shadow: 0 4px 12px rgba(15,23,42,0.08); }
+.btn:active { transform: translateY(0) scale(0.99); box-shadow: none; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-.btn-primary { background: linear-gradient(135deg, #F15A24 0%, #EA580C 100%); color: #fff; box-shadow: 0 2px 8px rgba(241,90,36,0.25), inset 0 1px 0 rgba(255,255,255,0.2); }
-.btn-primary:hover { box-shadow: 0 4px 16px rgba(241,90,36,0.35), inset 0 1px 0 rgba(255,255,255,0.25); }
-.btn-danger { background: linear-gradient(135deg, #DC2626 0%, #B91C1C 100%); color: #fff; box-shadow: 0 2px 8px rgba(220,38,38,0.2); }
-.btn-success { background: linear-gradient(135deg, #059669 0%, #047857 100%); color: #fff; box-shadow: 0 2px 8px rgba(5,150,105,0.2); }
+/* ── GLOW: neon halo per variant, intensifies on hover ── */
+.btn-primary { background: linear-gradient(135deg, #F15A24 0%, #EA580C 100%); color: #fff; box-shadow: 0 0 10px rgba(241,90,36,0.45), 0 2px 8px rgba(241,90,36,0.25), inset 0 1px 0 rgba(255,255,255,0.2); }
+.btn-primary:hover { box-shadow: 0 0 22px rgba(241,90,36,0.65), 0 4px 16px rgba(241,90,36,0.35), inset 0 1px 0 rgba(255,255,255,0.25); }
+.btn-danger { background: linear-gradient(135deg, #DC2626 0%, #B91C1C 100%); color: #fff; box-shadow: 0 0 10px rgba(220,38,38,0.4), 0 2px 8px rgba(220,38,38,0.2); }
+.btn-danger:hover { box-shadow: 0 0 22px rgba(220,38,38,0.6), 0 4px 14px rgba(220,38,38,0.3); }
+.btn-success { background: linear-gradient(135deg, #059669 0%, #047857 100%); color: #fff; box-shadow: 0 0 10px rgba(5,150,105,0.4), 0 2px 8px rgba(5,150,105,0.2); }
+.btn-success:hover { box-shadow: 0 0 22px rgba(5,150,105,0.6), 0 4px 14px rgba(5,150,105,0.3); }
 .btn-ghost { background: var(--surface); color: var(--text-secondary); border: 1.5px solid var(--border); box-shadow: 0 1px 3px rgba(15,23,42,0.03); }
-.btn-ghost:hover { background: var(--bg-subtle); border-color: var(--border-strong); color: var(--text); }
+.btn-ghost:hover { background: var(--bg-subtle); border-color: var(--primary); color: var(--text); box-shadow: 0 0 14px rgba(241,90,36,0.25), 0 2px 8px rgba(15,23,42,0.06); }
+/* ── CHIP glow: active tick-boxes + category pills ── */
+.chip-active { box-shadow: 0 0 12px rgba(241,90,36,0.45), 0 2px 8px rgba(241,90,36,0.25); }
+.chip:hover { box-shadow: 0 0 10px rgba(241,90,36,0.2); }
 .btn-sm { padding: 6px 12px; font-size: 11px; border-radius: 8px; }
 
 /* ─── EMPTY / SKELETON — PREMIUM ─────────────────────────────────────────── */
