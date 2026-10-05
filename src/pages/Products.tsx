@@ -33,16 +33,20 @@ function defaultUnitForCategory(cat: string): string {
   return 'Full';
 }
 
-// Tick-box unit picker: category preset options as toggle chips + base-unit
-// dropdown (no manual typing). Used by BOTH the add/edit form and the
+// Tick-box unit picker + price basis: category preset options as toggle chips,
+// base-unit dropdown, "price is for" selector, and per-option price inputs
+// (no manual typing for units). Used by BOTH the add/edit form and the
 // price-edit dialog so old and new items share one method.
 function UnitPicker({
-  category, unit, unitOptions, onChange,
+  category, unit, unitOptions, priceBasis, unitPrices, basePrice, onChange,
 }: {
   category: string;
   unit: string;
   unitOptions: string;
-  onChange: (unit: string, unitOptions: string) => void;
+  priceBasis: string;
+  unitPrices: Record<string, string>;
+  basePrice: string;
+  onChange: (unit: string, unitOptions: string, priceBasis: string, unitPrices: Record<string, string>) => void;
 }) {
   const preset = presetForCategory(category);
   const selected = unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
@@ -52,10 +56,18 @@ function UnitPicker({
       : [...selected, opt];
     // Keep preset order so customer app shows 100g → 5kg sensibly.
     next.sort((a, b) => preset.indexOf(a) - preset.indexOf(b));
-    onChange(unit, next.join(', '));
+    onChange(unit, next.join(', '), priceBasis, unitPrices);
   };
-  const selectAll = () => onChange(unit, preset.join(', '));
-  const clearAll = () => onChange(unit, '');
+  const selectAll = () => onChange(unit, preset.join(', '), priceBasis, unitPrices);
+  const clearAll = () => onChange(unit, '', priceBasis, unitPrices);
+  const setPrice = (opt: string, val: string) => {
+    onChange(unit, unitOptions, priceBasis, { ...unitPrices, [opt]: val });
+  };
+  const effPrice = (opt: string): string => {
+    if (unitPrices[opt] !== undefined && unitPrices[opt] !== '') return unitPrices[opt];
+    if (opt === priceBasis) return basePrice;
+    return '';
+  };
   return (
     <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 12, marginBottom: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -65,19 +77,33 @@ function UnitPicker({
           <button type="button" className="btn btn-sm btn-ghost" onClick={clearAll}>Clear</button>
         </div>
       </div>
-      <div className="form-group" style={{ marginBottom: 10 }}>
-        <label>Base unit (default shown to customer)</label>
-        <select
-          value={preset.includes(unit) ? unit : preset[0] ?? unit}
-          onChange={(e) => onChange(e.target.value, unitOptions)}
-          style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
-        >
-          {preset.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label>Base unit (default shown)</label>
+          <select
+            value={preset.includes(unit) ? unit : preset[0] ?? unit}
+            onChange={(e) => onChange(e.target.value, unitOptions, priceBasis, unitPrices)}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
+          >
+            {preset.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label>💰 Entered price is for…</label>
+          <select
+            value={preset.includes(priceBasis) ? priceBasis : preset[0] ?? priceBasis}
+            onChange={(e) => onChange(unit, unitOptions, e.target.value, unitPrices)}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
+          >
+            {preset.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
         {preset.map((p) => (
           <button
             key={p}
@@ -89,6 +115,25 @@ function UnitPicker({
           </button>
         ))}
       </div>
+      {selected.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Per-option price ₹ (blank = auto-calculated from “price is for”)</div>
+          {selected.map((opt) => (
+            <div key={opt} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ minWidth: 70, fontSize: 13, fontWeight: 600 }}>{opt}{opt === priceBasis ? ' ★' : ''}</span>
+              <input
+                type="number"
+                min="0"
+                placeholder={opt === priceBasis ? `= entered price` : 'auto'}
+                value={effPrice(opt)}
+                disabled={opt === priceBasis}
+                onChange={(e) => setPrice(opt, e.target.value)}
+                style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13 }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
       {selected.length === 0 && (
         <p style={{ fontSize: 12, color: '#B45309', marginTop: 8 }}>⚠️ Koi option tick nahi — customer ko quantity nahi dikhegi. Kam se kam 1 tick karo.</p>
       )}
@@ -141,6 +186,8 @@ interface CustomRow {
   isRawItem?: boolean;
   unit?: string;
   unitOptions?: string[];
+  priceBasis?: string;
+  unitPrices?: Record<string, number>;
   freshnessTag?: string;
   isPopular?: boolean;
   isBestDeal?: boolean;
@@ -158,6 +205,8 @@ interface Editing {
   aiPrompt: string;
   unit: string;
   unitOptions: string;
+  priceBasis: string;
+  unitPrices: Record<string, string>;
 }
 
 const emptyItemForm = {
@@ -169,8 +218,10 @@ const emptyItemForm = {
   image: '',
   isVeg: true,
   isRawItem: false,
-  unit: 'portion',
-  unitOptions: '1 portion',
+  unit: 'Full',
+  unitOptions: 'Half, Full',
+  priceBasis: 'Half',
+  unitPrices: {} as Record<string, string>,
   freshnessTag: '',
   isPopular: false,
   isBestDeal: false,
@@ -266,7 +317,11 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       image: o?.image ?? '',
       aiPrompt: '',
       unit: (o as { unit?: string } | undefined)?.unit ?? c.unit ?? 'portion',
-      unitOptions: (((o as { unitOptions?: string[] } | undefined)?.unitOptions ?? c.unitOptions ?? ['1 portion']) as string[]).join(', '),
+      unitOptions: (((o as unknown as { unitOptions?: string[] } | undefined)?.unitOptions ?? c.unitOptions ?? ['1 portion']) as string[]).join(', '),
+      priceBasis: (o as unknown as { priceBasis?: string } | undefined)?.priceBasis ?? c.unit ?? 'portion',
+      unitPrices: ((o as unknown as { unitPrices?: Record<string, number> } | undefined)?.unitPrices
+        ? Object.fromEntries(Object.entries((o as unknown as { unitPrices: Record<string, number> }).unitPrices).map(([k, v]) => [k, String(v)]))
+        : {}),
     });
     setAiPreview('');
     setAiOk(false);
@@ -300,10 +355,18 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       if (mrp !== null) payload.mrp = mrp;
       // Image override: non-empty URL saves, empty string CLEARS it (back to bundled photo).
       payload.image = img;
-      // Unit override: saved to product_prices so the customer app picks it up live.
+      // Unit + price-basis override: saved to product_prices so the app picks it up live.
       const units = editing.unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
+      if (!units.length) { setToast({ message: 'Quantity option tick karo (kam se kam 1)', type: 'error' }); setSaving(false); return; }
       payload.unit = editing.unit.trim() || 'portion';
-      payload.unitOptions = units.length ? units : ['1 portion'];
+      payload.unitOptions = units;
+      payload.priceBasis = editing.priceBasis.trim() || editing.unit.trim() || 'portion';
+      const ePrices: Record<string, number> = {};
+      for (const [k, v] of Object.entries(editing.unitPrices)) {
+        const n = Number(v);
+        if (v !== '' && Number.isFinite(n) && n >= 0) ePrices[k] = n;
+      }
+      payload.unitPrices = ePrices;
       await setDoc(doc(db, 'product_prices', editing.id), payload, { merge: true });
       await addDoc(collection(db, 'admin_audit_logs'), {
         adminPhone: user?.uid ?? 'admin',
@@ -344,6 +407,10 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
       isRawItem: r.isRawItem ?? false,
       unit: r.unit ?? 'portion',
       unitOptions: (r.unitOptions ?? ['1 portion']).join(', '),
+      priceBasis: r.priceBasis ?? r.unit ?? 'portion',
+      unitPrices: r.unitPrices
+        ? Object.fromEntries(Object.entries(r.unitPrices).map(([k, v]) => [k, String(v)]))
+        : {},
       freshnessTag: r.freshnessTag ?? '',
       isPopular: r.isPopular ?? false,
       isBestDeal: r.isBestDeal ?? false,
@@ -443,6 +510,12 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         isRawItem: form.isRawItem,
         unit: form.unit.trim() || 'portion',
         unitOptions: units.length ? units : ['1 portion'],
+        priceBasis: form.priceBasis.trim() || form.unit.trim() || 'portion',
+        unitPrices: Object.fromEntries(
+          Object.entries(form.unitPrices)
+            .map(([k, v]) => [k, Number(v)])
+            .filter(([, n]) => Number.isFinite(n) && (n as number) >= 0),
+        ),
         freshnessTag: form.freshnessTag.trim(),
         isPopular: form.isPopular,
         isBestDeal: form.isBestDeal,
@@ -706,7 +779,10 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
               category={CATALOG.find((c) => c.id === editing.id)?.category ?? 'cooked_food'}
               unit={editing.unit}
               unitOptions={editing.unitOptions}
-              onChange={(unit, unitOptions) => setEditing({ ...editing, unit, unitOptions })}
+              priceBasis={editing.priceBasis}
+              unitPrices={editing.unitPrices}
+              basePrice={editing.price}
+              onChange={(unit, unitOptions, priceBasis, unitPrices) => setEditing({ ...editing, unit, unitOptions, priceBasis, unitPrices })}
             />
 
             {/* ── PHOTO OVERRIDE ── */}
@@ -945,7 +1021,10 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                   category={form.category}
                   unit={form.unit}
                   unitOptions={form.unitOptions}
-                  onChange={(unit, unitOptions) => setForm({ ...form, unit, unitOptions })}
+                  priceBasis={form.priceBasis}
+                  unitPrices={form.unitPrices}
+                  basePrice={form.price}
+                  onChange={(unit, unitOptions, priceBasis, unitPrices) => setForm({ ...form, unit, unitOptions, priceBasis, unitPrices })}
                 />
 
                 <div className="form-group">
