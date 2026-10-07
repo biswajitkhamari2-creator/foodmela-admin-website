@@ -11,7 +11,7 @@ const PAGE_SIZE = 20;
 // ── Unit presets: admin ticks, never types ──────────────────────────────────
 // Cooked food → Half/Full plates. Veg/grocery/dairy → kg steps.
 // Piece items (paneer, eggs, etc.) → piece counts.
-const WEIGHT_PRESET = ['100g', '250g', '500g', '1 kg', '2 kg', '3 kg', '4 kg', '5 kg'];
+const WEIGHT_PRESET = ['50gm', '100gm', '250gm', '500gm', '1 kg', '2 kg', '3 kg', '4 kg', '5 kg'];
 const PIECE_PRESET = ['1 pc', '2 pcs', '4 pcs', '6 pcs', '8 pcs', '12 pcs', '1 dozen'];
 const COOKED_PRESET = ['Half', 'Full'];
 const ML_PRESET = ['200 ml', '300 ml', '500 ml', '1 L'];
@@ -41,13 +41,13 @@ function defaultUnitForCategory(cat: string): string {
 type UnitMode = 'kilo' | 'portion' | 'piece';
 
 const UNIT_MODES: { key: UnitMode; label: string; hint: string }[] = [
-  { key: 'kilo', label: '⚖️ Kilo-wise', hint: 'Sabzi/grocery/doodh — 250g, 500g, 1 kg, 2 kg…' },
+  { key: 'kilo', label: '⚖️ Kilo-wise', hint: 'Sabzi/grocery/doodh — 50gm, 100gm, 250gm, 500gm, 1 kg, 2 kg…' },
   { key: 'portion', label: '🍛 Portion-wise', hint: 'Cooked food — Half, Full' },
   { key: 'piece', label: '🧩 Piece-wise', hint: 'Paneer/eggs/paste — 1 pc, 2 pcs…' },
 ];
 
 const UNIT_MODE_OPTIONS: Record<UnitMode, string[]> = {
-  kilo: ['250g', '500g', '1 kg', '2 kg', '3 kg', '4 kg', '5 kg', '10 kg'],
+  kilo: ['50gm', '100gm', '250gm', '500gm', '1 kg', '2 kg', '3 kg', '4 kg', '5 kg', '10 kg'],
   portion: ['Half', 'Full'],
   piece: ['1 pc', '2 pcs', '4 pcs', '6 pcs', '8 pcs', '12 pcs', '1 dozen'],
 };
@@ -61,7 +61,7 @@ const UNIT_MODE_BASE: Record<UnitMode, string> = {
 function unitModeForOptions(unitOptions: string, fallbackCategory: string): UnitMode {
   const opts = unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
   if (opts.includes('Half') || opts.includes('Full')) return 'portion';
-  if (opts.some((o) => /kg|g\b/i.test(o))) return 'kilo';
+  if (opts.some((o) => /(?:kg|gms?|g)\b/i.test(o))) return 'kilo';
   if (opts.some((o) => /pc|dozen/i.test(o))) return 'piece';
   const c = fallbackCategory.toLowerCase();
   if (['vegetables', 'fruits', 'grocery', 'dals_pulses', 'dairy'].includes(c)) return 'kilo';
@@ -130,7 +130,7 @@ function UnitPicker({
       )}
       <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '8px 12px', marginTop: 8, fontSize: 12.5, color: '#166534' }}>
         3️⃣ Price: upar jo <strong>₹{basePrice || '…'}</strong> likha hai wahi <strong>{baseLabel}</strong> ka daam hai.
-        Baaki auto: {mode === 'kilo' ? '250g = ¼, 500g = ½, 2 kg = double' : mode === 'portion' ? 'Half = aadha' : 'count ke hisaab se'}.
+        Baaki auto: {mode === 'kilo' ? '50gm = 1/20, 100gm = 1/10, 250gm = ¼, 500gm = ½, 2 kg = double' : mode === 'portion' ? 'Half = aadha' : 'count ke hisaab se'}.
       </div>
       <div className="form-group" style={{ marginTop: 10, marginBottom: 0 }}>
         <label>4️⃣ 🔒 Max kitna le sakta hai? (blank = unlimited)</label>
@@ -640,7 +640,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         else if (/egg|momo/.test(n)) mode = 'piece';
         const patch: Record<string, unknown> = { updatedAt: serverTimestamp(), unitPrices: {} };
         if (mode === 'kilo') {
-          Object.assign(patch, { unit: '1 kg', unitOptions: ['250g', '500g', '1 kg', '2 kg', '5 kg'], priceBasis: '1 kg' });
+          Object.assign(patch, { unit: '1 kg', unitOptions: ['50gm', '100gm', '250gm', '500gm', '1 kg', '2 kg', '5 kg'], priceBasis: '1 kg' });
           if (m.maxQty == null) patch.maxQty = 10;
         } else if (mode === 'piece') {
           Object.assign(patch, { unit: '1 pc', unitOptions: ['1 pc', '2 pcs', '4 pcs'], priceBasis: '1 pc' });

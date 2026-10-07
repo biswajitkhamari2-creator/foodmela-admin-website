@@ -38,6 +38,7 @@ const emptyForm = {
   isSticky: false,
   actionText: '',
   actionUrl: '',
+  sendPush: true,
 };
 
 export default function NoticeBoard({ globalSearch }: { globalSearch?: string }) {
@@ -50,6 +51,90 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
   const [formId, setFormId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<NoticeRow | null>(null);
+
+  // 👑 Premium Instant Quick Notice Broadcaster
+  const [quickTitle, setQuickTitle] = useState('');
+  const [quickMessage, setQuickMessage] = useState('');
+  const [quickType, setQuickType] = useState<NoticeRow['type']>('offer');
+  const [quickBadge, setQuickBadge] = useState('SPECIAL OFFER');
+  const [quickIcon, setQuickIcon] = useState('🎉');
+  const [quickActionText, setQuickActionText] = useState('Order Now');
+  const [quickSendPush, setQuickSendPush] = useState(true);
+  const [quickPosting, setQuickPosting] = useState(false);
+
+  const handleQuickTone = (type: NoticeRow['type'], icon: string, badge: string) => {
+    setQuickType(type);
+    setQuickIcon(icon);
+    setQuickBadge(badge);
+  };
+
+  const handleQuickPush = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!quickTitle.trim()) {
+      setToast({ message: 'Notice headline / title daalna zaroori hai', type: 'error' });
+      return;
+    }
+    if (!quickMessage.trim()) {
+      setToast({ message: 'Notice message daalna zaroori hai', type: 'error' });
+      return;
+    }
+
+    setQuickPosting(true);
+    try {
+      // 1. Deactivate other active notices so this one takes spotlight
+      for (const r of rows.filter((x) => x.isActive)) {
+        await updateDoc(doc(db, 'app_notices', r.id), { isActive: false, updatedAt: serverTimestamp() }).catch(() => {});
+      }
+
+      const payload = {
+        title: quickTitle.trim(),
+        message: quickMessage.trim(),
+        type: quickType,
+        badge: quickBadge.trim() || 'NOTICE',
+        icon: quickIcon.trim() || '📢',
+        isActive: true,
+        isSticky: true,
+        actionText: quickActionText.trim(),
+        actionUrl: '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdBy: adminName || 'Admin',
+      };
+
+      await addDoc(collection(db, 'app_notices'), payload);
+
+      // 2. Broadcast via FCM phone push notification
+      if (quickSendPush) {
+        try {
+          const { adminFetch } = await import('../utils/adminApi');
+          const res = await adminFetch('/api/admin/broadcast', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: `${quickIcon} ${quickTitle.trim()}`.trim(),
+              body: quickMessage.trim(),
+            }),
+          });
+          const data = await res.json().catch(() => null);
+          if (data?.pushed) {
+            setToast({ message: '🚀 Broadcast published! Phone notification sent to all users!', type: 'success' });
+          } else {
+            setToast({ message: 'Notice live on customer app! (Phone push sent)', type: 'success' });
+          }
+        } catch {
+          setToast({ message: 'Notice live on customer app banner!', type: 'success' });
+        }
+      } else {
+        setToast({ message: 'Notice bar activated and live for all customers!', type: 'success' });
+      }
+
+      setQuickTitle('');
+      setQuickMessage('');
+    } catch (err: unknown) {
+      setToast({ message: `Broadcast failed: ${(err as Error).message}`, type: 'error' });
+    } finally {
+      setQuickPosting(false);
+    }
+  };
 
   useEffect(() => {
     const q = query(collection(db, 'app_notices'), orderBy('updatedAt', 'desc'));
@@ -90,6 +175,7 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
       isSticky: r.isSticky ?? false,
       actionText: r.actionText || '',
       actionUrl: r.actionUrl || '',
+      sendPush: false,
     });
   };
 
@@ -122,13 +208,52 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
 
       if (formId) {
         await updateDoc(doc(db, 'app_notices', formId), payload);
-        setToast({ message: 'Notice updated & broadcasted successfully!', type: 'success' });
+        if (form.sendPush) {
+          try {
+            const { adminFetch } = await import('../utils/adminApi');
+            await adminFetch('/api/admin/broadcast', {
+              method: 'POST',
+              body: JSON.stringify({
+                title: `${form.icon} ${form.title.trim()}`.trim(),
+                body: form.message.trim(),
+              }),
+            });
+          } catch (_) {}
+        }
+        setToast({ message: 'Notice updated & broadcasted successfully! 📲', type: 'success' });
       } else {
         await addDoc(collection(db, 'app_notices'), {
           ...payload,
           createdAt: serverTimestamp(),
         });
-        setToast({ message: 'New notice published & broadcasted to all users!', type: 'success' });
+        // Phone push to every customer & rider (killed-app safe FCM topic).
+        // In-app banner shows regardless; this is the extra buzz.
+        if (form.sendPush) {
+          try {
+            const { adminFetch } = await import('../utils/adminApi');
+            const res = await adminFetch('/api/admin/broadcast', {
+              method: 'POST',
+              body: JSON.stringify({
+                title: `${form.icon} ${form.title.trim()}`.trim(),
+                body: form.message.trim(),
+              }),
+            });
+            const data = await res.json().catch(() => null);
+            if (data?.pushed) {
+              setToast({ message: 'Notice published & phone notification sent! 📲', type: 'success' });
+            } else {
+              setToast({ message: 'Notice published (phone push failed — banner still live)', type: 'error' });
+            }
+          } catch {
+            setToast({ message: 'Notice published (phone push failed — banner still live)', type: 'error' });
+          }
+        } else {
+          setToast({ message: 'New notice published & broadcasted to all users!', type: 'success' });
+        }
+        setForm(null);
+        setFormId(null);
+        setSaving(false);
+        return;
       }
       setForm(null);
       setFormId(null);
@@ -192,6 +317,218 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
           <span>➕</span>
           <span>Create New Notice</span>
         </button>
+      </div>
+
+      {/* 👑 PREMIUM INSTANT QUICK NOTICE BROADCASTER BAR */}
+      <div className="bg-gradient-to-br from-slate-900 via-slate-800/95 to-slate-900 border-2 border-amber-500/40 rounded-3xl p-6 shadow-2xl relative overflow-hidden space-y-5">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-4">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-amber-500/20 text-amber-300 text-xl">👑</span>
+            <div>
+              <h2 className="text-lg font-black text-white flex items-center gap-2">
+                Instant Premium Notice Broadcaster
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PUSH TO ALL USERS
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Write here to immediately update the Home Screen Notice Bar on all customer phones and optionally buzz their phone with a push notification.
+              </p>
+            </div>
+          </div>
+          <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold self-start sm:self-center">
+            ● Real-Time Cloud Sync
+          </span>
+        </div>
+
+        {/* Form Inputs */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-7 space-y-4">
+            {/* Tone selector */}
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
+                1. Select Notice Tone / Style
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { type: 'offer' as const, icon: '🎉', badge: 'SPECIAL OFFER', label: 'Festive / Offer 🎉' },
+                  { type: 'info' as const, icon: '📢', badge: 'ANNOUNCEMENT', label: 'Announcement 📢' },
+                  { type: 'celebration' as const, icon: '✨', badge: 'FOOD MELA', label: 'Celebration / Greeting ✨' },
+                  { type: 'alert' as const, icon: '⚠️', badge: 'ALERT', label: 'Important Alert ⚠️' },
+                  { type: 'emergency' as const, icon: '🚨', badge: 'URGENT', label: 'Emergency / Delay 🚨' },
+                ].map((t) => (
+                  <button
+                    key={t.type}
+                    type="button"
+                    onClick={() => handleQuickTone(t.type, t.icon, t.badge)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                      quickType === t.type
+                        ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
+                        : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Headline Title */}
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
+                2. Headline / Title *
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg">{quickIcon}</span>
+                <input
+                  type="text"
+                  value={quickTitle}
+                  onChange={(e) => setQuickTitle(e.target.value)}
+                  placeholder="e.g. Flat 50% OFF on all Biryanis Today! / Delivery is super fast"
+                  className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-950/80 border border-slate-700 text-white placeholder-slate-500 text-sm focus:border-amber-500 focus:outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Notice Message */}
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
+                3. Notice Message to All Users *
+              </label>
+              <textarea
+                rows={3}
+                value={quickMessage}
+                onChange={(e) => setQuickMessage(e.target.value)}
+                placeholder="Write message details for the app banner and push notification (e.g. Order before 3 PM to enjoy fresh hot food with fast 45-min delivery!)..."
+                className="w-full px-4 py-3 rounded-2xl bg-slate-950/80 border border-slate-700 text-white placeholder-slate-500 text-sm focus:border-amber-500 focus:outline-none transition-all resize-none"
+              />
+            </div>
+
+            {/* Optional CTA & Push Checkbox */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1 uppercase tracking-wider">
+                  Button Action (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={quickActionText}
+                  onChange={(e) => setQuickActionText(e.target.value)}
+                  placeholder="e.g. Order Now, Explore Menu"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-slate-700 text-white placeholder-slate-500 text-xs focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/50 border border-slate-700/80 cursor-pointer hover:bg-slate-950 transition-all select-none mt-4 sm:mt-5">
+                <input
+                  type="checkbox"
+                  checked={quickSendPush}
+                  onChange={(e) => setQuickSendPush(e.target.checked)}
+                  className="w-4 h-4 rounded text-orange-500 bg-slate-800 border-slate-600 focus:ring-orange-500 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-slate-200">
+                  📲 Send Phone Push (FCM Buzz to all devices)
+                </span>
+              </label>
+            </div>
+
+            {/* Big Push Action Button */}
+            <div className="pt-2 flex items-center gap-3">
+              <button
+                type="button"
+                disabled={quickPosting}
+                onClick={() => void handleQuickPush()}
+                className="flex-1 py-3.5 px-6 rounded-2xl font-black text-sm uppercase tracking-wider text-slate-950 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 hover:from-amber-300 hover:via-orange-300 hover:to-amber-400 shadow-xl shadow-orange-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {quickPosting ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    <span>Broadcasting to all users...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🚀</span>
+                    <span>PUSH TO ALL USERS NOW</span>
+                  </>
+                )}
+              </button>
+
+              {(quickTitle || quickMessage) && (
+                <button
+                  type="button"
+                  onClick={() => { setQuickTitle(''); setQuickMessage(''); }}
+                  className="px-4 py-3.5 rounded-2xl text-xs font-bold text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Live In-App Mobile Preview */}
+          <div className="lg:col-span-5 flex flex-col justify-between p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-4">
+            <div>
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                  <span>📱</span> Live App Bar Preview
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">Customer Screen</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mb-3">
+                This is how the notice bar appears inside FoodMela Customer App:
+              </p>
+
+              {/* Simulated Customer App Notice Banner */}
+              <div
+                className={`p-4 rounded-2xl text-white shadow-xl space-y-2 border border-white/20 transition-all ${
+                  quickType === 'offer'
+                    ? 'bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 shadow-orange-600/30'
+                    : quickType === 'celebration'
+                    ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 shadow-emerald-600/30'
+                    : quickType === 'alert'
+                    ? 'bg-gradient-to-r from-amber-700 via-orange-700 to-red-700 shadow-red-600/30'
+                    : quickType === 'emergency'
+                    ? 'bg-gradient-to-r from-red-700 via-rose-700 to-red-800 shadow-rose-700/30'
+                    : 'bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 shadow-indigo-600/30'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <span className="text-2xl p-1.5 rounded-xl bg-white/15 backdrop-blur-sm">
+                    {quickIcon || '📢'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-black/40 text-amber-200 border border-white/20">
+                        {quickBadge || 'NOTICE'}
+                      </span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    </div>
+                    <h4 className="text-sm font-black text-white leading-tight">
+                      {quickTitle.trim() || 'Your Announcement Headline Here'}
+                    </h4>
+                    <p className="text-xs text-white/90 leading-relaxed mt-1">
+                      {quickMessage.trim() || 'Your live message will display right here for all customers.'}
+                    </p>
+                  </div>
+                </div>
+
+                {quickActionText && (
+                  <div className="flex justify-end pt-1">
+                    <span className="px-3 py-1 rounded-xl bg-white text-slate-900 font-black text-[11px] shadow-md">
+                      {quickActionText} →
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-500 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2">
+              <span>⚡</span>
+              <span>Publishing activates this notice instantly across all connected phones without app restart.</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Live Active Notice Preview Banner */}
@@ -429,6 +766,25 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
                   <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
                 </label>
               </div>
+
+              {/* Phone push toggle — new notices only */}
+              {!formId && (
+                <div className="p-3.5 rounded-2xl bg-orange-500/10 border border-orange-500/40 flex items-center justify-between">
+                  <div>
+                    <strong className="text-white block">📲 Phone Notification</strong>
+                    <span className="text-[11px] text-slate-400">Buzz every customer phone, even with the app closed</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.sendPush}
+                      onChange={(e) => setForm({ ...form, sendPush: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">

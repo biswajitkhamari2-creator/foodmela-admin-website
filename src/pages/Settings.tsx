@@ -86,6 +86,45 @@ export default function Settings() {
     return () => unsub();
   }, []);
 
+  // ── App Force-Update Controls (app_settings/version) ──
+  const [versionCfg, setVersionCfg] = useState({
+    customerMin: '1.0.0',
+    customerUrl: 'https://files.catbox.moe/3r8irt.apk',
+  });
+  const [versionSaving, setVersionSaving] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'app_settings', 'version'), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setVersionCfg({
+          customerMin: String(d.customerMin ?? '1.0.0'),
+          customerUrl: String(d.customerUrl ?? 'https://files.catbox.moe/3r8irt.apk'),
+        });
+      }
+    }, () => {});
+    return () => unsub();
+  }, []);
+
+  const saveVersion = async (minVer?: string) => {
+    setVersionSaving(true);
+    try {
+      const targetMin = minVer || versionCfg.customerMin;
+      await setDoc(doc(db, 'app_settings', 'version'), {
+        customerMin: targetMin,
+        customerLatest: targetMin,
+        customerUrl: versionCfg.customerUrl.trim(),
+        updatedBy: adminName || 'admin',
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setToast(`📲 App Version updated: Min Version ${targetMin} saved!`);
+    } catch (e) {
+      setToast(`❌ Failed to save version: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setVersionSaving(false);
+    }
+  };
+
   const saveFees = async () => {
     setFeesSaving(true);
     try {
@@ -261,6 +300,92 @@ export default function Settings() {
             {reviewerSaving ? '...' : reviewerOn ? 'HIDE karo' : 'SHOW karo'}
           </button>
         </div>
+
+      {/* ── 📲 App Force-Update Controls (Instant blocking screen on older apps) ── */}
+      <div className="card" style={{ padding: '24px', marginTop: '16px', border: '1px solid #E2E8F0', borderRadius: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <h2 style={{ margin: 0, fontSize: '18px' }}>📲 Customer App Force-Update Control</h2>
+          <span style={{
+            padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 800,
+            background: versionCfg.customerMin >= '2.1.2' ? '#FEE2E2' : versionCfg.customerMin === '2.1.1' ? '#FEF3C7' : '#DCFCE7',
+            color: versionCfg.customerMin >= '2.1.2' ? '#DC2626' : versionCfg.customerMin === '2.1.1' ? '#D97706' : '#16A34A',
+          }}>
+            Active Min: v{versionCfg.customerMin}
+          </span>
+        </div>
+        <p style={{ margin: '0 0 16px', color: '#64748B', fontSize: '13px' }}>
+          Realtime live sync: button click karte hi phone par turant blocking Update screen aa jayegi (app band karne ki bhi zarurat nahi).
+        </p>
+
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: '13px', fontWeight: 700, minWidth: '180px' }}>Minimum Required Version:</label>
+          <input
+            type="text"
+            value={versionCfg.customerMin}
+            onChange={(e) => setVersionCfg({ ...versionCfg, customerMin: e.target.value })}
+            placeholder="e.g. 2.1.1"
+            style={{ width: '120px', padding: '10px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontWeight: 700 }}
+          />
+          <button
+            onClick={() => saveVersion()}
+            disabled={versionSaving}
+            className="btn"
+            style={{ padding: '10px 18px', borderRadius: '10px', background: '#2563EB', color: '#fff', border: 'none', fontWeight: 800, cursor: 'pointer' }}
+          >
+            {versionSaving ? 'Saving...' : '💾 Save Custom Version'}
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: '13px', fontWeight: 700, minWidth: '180px' }}>Update Download Link (APK):</label>
+          <input
+            type="text"
+            value={versionCfg.customerUrl}
+            onChange={(e) => setVersionCfg({ ...versionCfg, customerUrl: e.target.value })}
+            placeholder="https://files.catbox.moe/..."
+            style={{ flex: 1, minWidth: '220px', padding: '10px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+          />
+          <button
+            onClick={() => saveVersion()}
+            disabled={versionSaving}
+            className="btn"
+            style={{ padding: '10px 14px', borderRadius: '10px', background: '#475569', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+          >
+            Update URL
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', marginTop: '12px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => saveVersion('3.0.0')}
+            disabled={versionSaving}
+            className="btn"
+            style={{ padding: '10px 16px', borderRadius: '10px', background: '#DC2626', color: '#fff', border: 'none', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}
+          >
+            🚨 Test Force Update (Set v3.0.0 — Phone Par Check Karo)
+          </button>
+          <button
+            onClick={() => saveVersion('2.1.1')}
+            disabled={versionSaving}
+            className="btn"
+            style={{ padding: '10px 16px', borderRadius: '10px', background: '#EA580C', color: '#fff', border: 'none', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}
+          >
+            🔒 Block Purane Apps (&lt; v2.1.1)
+          </button>
+          <button
+            onClick={() => saveVersion('1.0.0')}
+            disabled={versionSaving}
+            className="btn"
+            style={{ padding: '10px 16px', borderRadius: '10px', background: '#16A34A', color: '#fff', border: 'none', fontWeight: 800, fontSize: '13px', cursor: 'pointer' }}
+          >
+            🟢 Normal / Allow All Apps (v1.0.0)
+          </button>
+        </div>
+
+        <div style={{ marginTop: '14px', padding: '12px 14px', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0', fontSize: '12px', color: '#475569', lineHeight: 1.5 }}>
+          💡 <strong>Kaise test karein:</strong> Aapke phone me abhi v2.1.1 app installed hai. Jab aap <strong>"🚨 Test Force Update (Set v3.0.0)"</strong> dabayenge, aapke phone par turant live blocking update screen dikhegi. Test karne ke baad <strong>"🔒 Block Purane Apps (v2.1.1)"</strong> ya <strong>"🟢 Normal"</strong> daba dijiye.
+        </div>
+      </div>
 
       {/* ── 💰 Delivery & Fee Controls (server-driven, live on app + website) ── */}
       <div className="card" style={{ padding: '24px', marginTop: '16px' }}>
