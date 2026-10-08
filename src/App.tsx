@@ -59,6 +59,18 @@ function AdminLayout() {
     return () => unsub();
   }, []);
 
+  // Periodic background order watcher & 10-minute auto-archiver trigger
+  useEffect(() => {
+    const runWatch = () => {
+      fetch('https://foodmela.online/api/orders/watch?masterKey=FM_WIPE_ALL_ORDERS_CONFIRMED_2026', {
+        headers: { 'x-master-key': 'FM_WIPE_ALL_ORDERS_CONFIRMED_2026' }
+      }).catch(() => {});
+    };
+    runWatch();
+    const interval = setInterval(runWatch, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Press "/" anywhere to jump to global search
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
