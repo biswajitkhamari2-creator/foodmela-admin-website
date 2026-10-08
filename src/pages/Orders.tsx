@@ -167,10 +167,45 @@ export default function Orders({ globalSearch }: { globalSearch?: string }) {
   };
 
   if (loading) return <div className="page"><div className="skeleton" style={{ height: 400 }} /></div>;
-  if (orders.length === 0) return <div className="page"><EmptyState icon="🧾" title="No orders yet" subtitle="Orders will appear here as customers place them." /></div>;
 
   return (
     <div className="page">
+      {/* Top Navigation Tabs */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, borderBottom: '1px solid var(--border-color, #e2e8f0)', paddingBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            className="btn btn-primary"
+            style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <span>⚡</span> Live Orders
+            <span style={{ background: '#fff', color: '#4f46e5', borderRadius: 12, padding: '1px 8px', fontSize: 11, fontWeight: 800 }}>
+              {orders.length}
+            </span>
+          </button>
+          <button
+            onClick={() => nav('/archived-orders')}
+            className="btn btn-ghost"
+            style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: 0.8 }}
+          >
+            <span>📦</span> Archived Orders
+          </button>
+        </div>
+      </div>
+
+      {orders.length === 0 ? (
+        <div style={{ padding: '40px 20px', textAlign: 'center', background: 'var(--card-bg, #fff)', borderRadius: 12, border: '1px solid var(--border-color, #e2e8f0)', marginTop: 12 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>✨</div>
+          <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: '#1e293b' }}>Active Orders Cleared & Ready</h3>
+          <p style={{ color: 'var(--text-muted, #64748b)', maxWidth: 520, margin: '0 auto 20px', fontSize: 14 }}>
+            All past orders have been safely migrated to the <strong>Archived Orders</strong> section.
+            The live database and rider dispatch queue are completely fresh!
+          </p>
+          <button onClick={() => nav('/archived-orders')} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span>📦</span> Open Archived Orders Archive
+          </button>
+        </div>
+      ) : (
+        <>
       <div className="filters-bar">
         <div className="filters-row">
           <div className="search-wrap">
@@ -283,6 +318,8 @@ export default function Orders({ globalSearch }: { globalSearch?: string }) {
           </div>
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </>
+      )}
+      </>
       )}
 
       <ConfirmDialog

@@ -1,8 +1,12 @@
 import { NavLink } from 'react-router-dom';
 
-const navItems = [
+const overviewItems = [
   { to: '/', label: 'Dashboard', icon: '◧' },
+];
+
+const operationsItems = [
   { to: '/orders', label: 'Orders', icon: '🧾' },
+  { to: '/archived-orders', label: 'Archived Orders', icon: '📦' },
   { to: '/invoices', label: 'Invoices', icon: '🧮' },
   { to: '/payments', label: 'Payments', icon: '💳' },
   { to: '/products', label: 'Prices', icon: '🏷️' },
@@ -10,6 +14,9 @@ const navItems = [
   { to: '/banners', label: 'Banners', icon: '🎉' },
   { to: '/notices', label: 'Notice Board', icon: '📢' },
   { to: '/promos', label: 'Promo Codes', icon: '🏷️' },
+];
+
+const systemItems = [
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/partners', label: 'Delivery Partners', icon: '🛵' },
   { to: '/approvals', label: 'Pending Approvals', icon: '⏳' },
@@ -36,6 +43,16 @@ export default function Sidebar({
   onLogout: () => void;
   adminName: string;
 }) {
+  const renderItem = (item: { to: string; label: string; icon: string }, end = false) => (
+    <NavLink key={item.to} to={item.to} end={end} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+      <span className="nav-icon-box">{item.icon}</span>
+      {!collapsed && <span className="nav-label">{item.label}</span>}
+      {!collapsed && item.to === '/approvals' && pendingCount > 0 && (
+        <span className="nav-badge">{pendingCount}</span>
+      )}
+    </NavLink>
+  );
+
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-brand">
@@ -58,29 +75,13 @@ export default function Sidebar({
 
       {!collapsed && <div className="nav-section"><span>OVERVIEW</span></div>}
       <nav className="sidebar-nav">
-        {navItems.slice(0, 1).map((item) => (
-          <NavLink key={item.to} to={item.to} end className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon-box">{item.icon}</span>
-            {!collapsed && <span className="nav-label">{item.label}</span>}
-          </NavLink>
-        ))}
+        {overviewItems.map((item) => renderItem(item, true))}
+
         {!collapsed && <div className="nav-section"><span>OPERATIONS</span></div>}
-        {navItems.slice(1, 9).map((item) => (
-          <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon-box">{item.icon}</span>
-            {!collapsed && <span className="nav-label">{item.label}</span>}
-            {!collapsed && item.to === '/approvals' && pendingCount > 0 && (
-              <span className="nav-badge">{pendingCount}</span>
-            )}
-          </NavLink>
-        ))}
+        {operationsItems.map((item) => renderItem(item))}
+
         {!collapsed && <div className="nav-section"><span>SYSTEM</span></div>}
-        {navItems.slice(9).map((item) => (
-          <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon-box">{item.icon}</span>
-            {!collapsed && <span className="nav-label">{item.label}</span>}
-          </NavLink>
-        ))}
+        {systemItems.map((item) => renderItem(item))}
       </nav>
 
       <div className="sidebar-footer">

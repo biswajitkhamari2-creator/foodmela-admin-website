@@ -117,16 +117,82 @@ export default function OrderDetail() {
 
   useEffect(() => {
     if (!orderId) return;
+    let isMounted = true;
     const unsub = onSnapshot(doc(db, 'orders', orderId), (snap) => {
-      if (!snap.exists()) { setNotFound(true); setLoading(false); return; }
-      setOrder({ id: snap.id, ...snap.data() } as OrderRecord);
-      setLoading(false);
-    }, () => { setNotFound(true); setLoading(false); });
-    return () => unsub();
+      if (!snap.exists()) {
+        // Fallback: check archived_orders in Firestore
+        const unsubArch = onSnapshot(doc(db, 'archived_orders', orderId), (archSnap) => {
+          if (!archSnap.exists()) {
+            // Also try backend archive API
+            adminFetch('/api/admin/orders/archived?limit=300')
+              .then((res) => res.json())
+              .then((data) => {
+                if (!isMounted) return;
+                const found = (data.orders || []).find((x: any) => x.id === orderId || x.orderId === orderId);
+                if (found) {
+                  setOrder({ ...found, isArchived: true } as any);
+                  setNotFound(false);
+                } else {
+                  setNotFound(true);
+                }
+                setLoading(false);
+              })
+              .catch(() => {
+                if (isMounted) {
+                  setNotFound(true);
+                  setLoading(false);
+                }
+              });
+            return;
+          }
+          if (isMounted) {
+            setOrder({ id: archSnap.id, ...archSnap.data(), isArchived: true } as any);
+            setNotFound(false);
+            setLoading(false);
+          }
+        }, () => {
+          // If firestore permission error, use backend API
+          adminFetch('/api/admin/orders/archived?limit=300')
+            .then((res) => res.json())
+            .then((data) => {
+              if (!isMounted) return;
+              const found = (data.orders || []).find((x: any) => x.id === orderId || x.orderId === orderId);
+              if (found) {
+                setOrder({ ...found, isArchived: true } as any);
+                setNotFound(false);
+              } else {
+                setNotFound(true);
+              }
+              setLoading(false);
+            })
+            .catch(() => {
+              if (isMounted) {
+                setNotFound(true);
+                setLoading(false);
+              }
+            });
+        });
+        return () => unsubArch();
+      }
+      if (isMounted) {
+        setOrder({ id: snap.id, ...snap.data() } as OrderRecord);
+        setLoading(false);
+      }
+    }, () => {
+      if (isMounted) {
+        setNotFound(true);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, [orderId]);
 
   if (loading) return <div className="page"><div className="skeleton" style={{ height: 400 }} /></div>;
-  if (notFound || !order) return <div className="page"><div className="empty-state"><div className="empty-icon">🧾</div><h3>Order not found</h3><p>Order {orderId} does not exist.</p><Link to="/orders" className="btn btn-primary">Back to Orders</Link></div></div>;
+  if (notFound || !order) return <div className="page"><div className="empty-state"><div className="empty-icon">🧾</div><h3>Order not found</h3><p>Order {orderId} does not exist in live or archived orders.</p><Link to="/orders" className="btn btn-primary">Back to Orders</Link></div></div>;
 
   const createdAt = tsToDate(order.createdAt);
   const updatedAt = tsToDate(order.updatedAt);
@@ -164,16 +230,48 @@ export default function OrderDetail() {
   const items = Array.isArray(order.items) ? order.items as Record<string, unknown>[] : [];
   const summary = order.itemsSummary ?? '';
 
+  const isArchived = Boolean((order as any).isArchived || (order as any).archivedAt);
+
   return (
     <div className="page">
-      <Link to="/orders" className="back-link">← Back to Orders</Link>
+      <Link to={isArchived ? "/archived-orders" : "/orders"} className="back-link">
+        {isArchived ? "← Back to Archived Orders" : "← Back to Orders"}
+      </Link>
+
+      {isArchived && (
+        <div style={{
+          background: '#f8fafc',
+          border: '1px solid #cbd5e1',
+          borderRadius: 8,
+          padding: '12px 16px',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10
+        }}>
+          <span style={{ fontSize: 20 }}>📦</span>
+          <div>
+            <strong style={{ fontSize: 13, color: '#1e293b' }}>Archived Historical Order</strong>
+            <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
+              This order was safely archived from the active database. All receipts, customer details, and payment histories are kept for permanent records.
+            </p>
+          </div>
+        </div>
+      )}
 
       <Card title="Order Information">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{ fontWeight: 700 }}>{formatOrderId(order.orderId ?? order.id)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontWeight: 700 }}>{formatOrderId(order.orderId ?? order.id)}</span>
+            {isArchived && (
+              <span style={{ fontSize: 11, background: '#e2e8f0', color: '#334155', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>
+                ARCHIVED
+              </span>
+            )}
+          </div>
           <StageBadge stage={order.stage ?? 0} />
         </div>
-        {(order.stage === 0 || order.stage === 1 || order.stage === 2 || order.stage === -1) && (
+        {!isArchived && (order.stage === 0 || order.stage === 1 || order.stage === 2 || order.stage === -1) && (
           <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
             {(order.stage === 0 || order.stage === -1) && (
               <button className="btn btn-success" disabled={processing} onClick={() => setConfirm('accept')}>✅ Accept Order</button>
