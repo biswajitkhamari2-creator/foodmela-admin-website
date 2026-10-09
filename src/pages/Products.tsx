@@ -16,12 +16,14 @@ const PIECE_PRESET = ['1 pc', '2 pcs', '4 pcs', '6 pcs', '8 pcs', '12 pcs', '1 d
 const COOKED_PRESET = ['Half', 'Full'];
 const ML_PRESET = ['200 ml', '300 ml', '500 ml', '1 L'];
 
+// Unknown (admin-added, e.g. healthy_foods) categories fall back to portion
+// (Half/Full) — the admin can still switch mode manually in the UnitPicker.
 function presetForCategory(cat: string): string[] {
   const c = (cat || '').toLowerCase();
   if (['vegetables', 'fruits', 'grocery', 'dals_pulses', 'dairy'].includes(c)) return WEIGHT_PRESET;
   if (['eggs_meat', 'non_veg'].includes(c)) return PIECE_PRESET;
   if (['beverages'].includes(c)) return ML_PRESET;
-  if (['cooked_food', 'fast_food', 'snacks', 'chaat', 'sweets', 'breakfast', 'momos'].includes(c)) return COOKED_PRESET;
+  if (['cooked_food', 'fast_food', 'snacks', 'chaat', 'sweets', 'breakfast', 'momos', 'healthy_foods'].includes(c)) return COOKED_PRESET;
   return [...COOKED_PRESET, ...WEIGHT_PRESET, ...PIECE_PRESET];
 }
 
@@ -238,6 +240,9 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
   const { user, adminName } = useAuth();
   const [rows, setRows] = useState<PriceRow[]>([]);
   const [customs, setCustoms] = useState<CustomRow[]>([]);
+  // Live categories from Firestore (app_categories) — merged with bundled labels
+  // so newly added categories (e.g. Healthy Foods) appear in section selection.
+  const [liveCats, setLiveCats] = useState<{ id: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -266,8 +271,22 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
     const un2 = onSnapshot(collection(db, 'custom_products'), (snap) => {
       setCustoms(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CustomRow, 'id'>) })));
     }, () => {});
-    return () => { un1(); un2(); };
+    const un3 = onSnapshot(collection(db, 'app_categories'), (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, label: (d.data() as { label?: string }).label ?? d.id, isActive: (d.data() as { isActive?: boolean }).isActive ?? true }))
+        .filter((c) => c.isActive)
+        .sort((a, b) => a.label.localeCompare(b.label));
+      setLiveCats(list);
+    }, () => {});
+    return () => { un1(); un2(); un3(); };
   }, []);
+
+  // Bundled labels + live Firestore categories (live wins on key clash).
+  const allCategoryLabels = useMemo(() => {
+    const merged: Record<string, string> = { ...CATEGORY_LABELS };
+    for (const c of liveCats) merged[c.id] = c.label;
+    return merged;
+  }, [liveCats]);
 
   const overrideById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
 
@@ -704,9 +723,9 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         </div>
         <div className="filters-row">
           <span className="filter-label">Category:</span>
-          {['all', ...Object.keys(CATEGORY_LABELS)].map((v) => (
+          {['all', ...Object.keys(allCategoryLabels)].map((v) => (
             <button key={v} className={`chip ${categoryFilter === v ? 'chip-active' : ''}`} onClick={() => setCategoryFilter(v)}>
-              {v === 'all' ? 'All' : CATEGORY_LABELS[v]}
+              {v === 'all' ? 'All' : allCategoryLabels[v]}
             </button>
           ))}
         </div>
@@ -800,7 +819,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                         </div>
                       </div>
                     </td>
-                    <td>{CATEGORY_LABELS[r.category ?? 'cooked_food'] ?? r.category}</td>
+                    <td>{allCategoryLabels[r.category ?? 'cooked_food'] ?? r.category}</td>
                     <td>
                       <strong>₹{(r.price ?? 0).toLocaleString('en-IN')}</strong>
                       {r.mrp != null && r.mrp > (r.price ?? 0) && (
@@ -998,7 +1017,7 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
                 }}
                 style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #CBD5E1', fontSize: 14, background: '#FFF' }}
               >
-                {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
+                {Object.entries(allCategoryLabels).map(([k, v]) => (
                   <option key={k} value={k}>{v}</option>
                 ))}
               </select>
