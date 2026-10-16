@@ -40,13 +40,14 @@ function defaultUnitForCategory(cat: string): string {
 // Step 2: tick the options to offer. Step 3: price = ONE base price
 // (1 kg ka / Full ka) — baaki auto. Step 4: max limit (blank = unlimited).
 // Used by BOTH the add/edit form and the price-edit dialog.
-type UnitMode = 'kilo' | 'portion' | 'piece' | 'glass';
+type UnitMode = 'kilo' | 'portion' | 'piece' | 'glass' | 'pack';
 
 const UNIT_MODES: { key: UnitMode; label: string; hint: string }[] = [
   { key: 'kilo', label: '⚖️ Kilo-wise', hint: 'Sabzi/grocery/doodh — 50gm, 100gm, 250gm, 500gm, 1 kg, 2 kg…' },
   { key: 'portion', label: '🍛 Portion-wise', hint: 'Cooked food — Half, Full' },
   { key: 'piece', label: '🧩 Piece-wise', hint: 'Paneer/eggs/paste — 1 pc, 2 pcs…' },
   { key: 'glass', label: '🥤 Glass-wise', hint: 'Juice/shake/lassi — 200 ml, 300 ml, 500 ml, 1 L (full price, never scaled)' },
+  { key: 'pack', label: '🛢️ Pack-wise', hint: 'Oil/ghee/packs — 1 Litre, 5 Litre (full pack price, never scaled)' },
 ];
 
 const UNIT_MODE_OPTIONS: Record<UnitMode, string[]> = {
@@ -54,9 +55,11 @@ const UNIT_MODE_OPTIONS: Record<UnitMode, string[]> = {
   portion: ['Half', 'Full'],
   piece: ['1 pc', '2 pcs', '4 pcs', '6 pcs', '8 pcs', '12 pcs', '1 dozen'],
   glass: ['200 ml', '300 ml', '500 ml', '1 L'],
+  pack: ['500 ml', '1 Litre', '2 Litre', '5 Litre', '500g pack', '1 kg pack'],
 };
 
 const UNIT_MODE_BASE: Record<UnitMode, string> = {
+  pack: '1 pack',
   kilo: '1 kg',
   portion: 'Full',
   piece: '1 pc',
@@ -65,6 +68,7 @@ const UNIT_MODE_BASE: Record<UnitMode, string> = {
 
 function unitModeForOptions(unitOptions: string, fallbackCategory: string): UnitMode {
   const opts = unitOptions.split(',').map((u) => u.trim()).filter(Boolean);
+  if (opts.some((o) => /litre|liter/i.test(o)) || opts.some((o) => /pack/i.test(o))) return 'pack';
   if (opts.some((o) => /ml|litre|liter/i.test(o))) return 'glass';
   if (opts.includes('Half') || opts.includes('Full')) return 'portion';
   if (opts.some((o) => /(?:kg|gms?|g)\b/i.test(o))) return 'kilo';
@@ -137,7 +141,7 @@ function UnitPicker({
       )}
       <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '8px 12px', marginTop: 8, fontSize: 12.5, color: '#166534' }}>
         3️⃣ Price: upar jo <strong>₹{basePrice || '…'}</strong> likha hai wahi <strong>{baseLabel}</strong> ka daam hai.
-        Baaki auto: {mode === 'kilo' ? '50gm = 1/20, 100gm = 1/10, 250gm = ¼, 500gm = ½, 2 kg = double' : mode === 'portion' ? 'Half = aadha' : mode === 'glass' ? 'har glass FULL price (kabhi scale nahi hota)' : 'count ke hisaab se'}.
+        Baaki auto: {mode === 'kilo' ? '50gm = 1/20, 100gm = 1/10, 250gm = ¼, 500gm = ½, 2 kg = double' : mode === 'portion' ? 'Half = aadha' : mode === 'glass' ? 'har glass FULL price (kabhi scale nahi hota)' : mode === 'pack' ? 'har pack FULL price (oil/ghee — kabhi scale nahi hota)' : 'count ke hisaab se'}.
       </div>
       <div className="form-group" style={{ marginTop: 10, marginBottom: 0 }}>
         <label>4️⃣ 🔒 Max kitna le sakta hai? (blank = unlimited)</label>
@@ -401,7 +405,8 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         isRawItem: form.isRawItem,
         unit: UNIT_MODE_BASE[unitModeForOptions(form.unitOptions, form.category)],
         unitOptions: units.length ? units : ['1 portion'],
-        priceBasis: UNIT_MODE_BASE[unitModeForOptions(form.unitOptions, form.category)],
+        // Pack-wise (oil/ghee): empty basis = app never scales, full pack price always.
+        priceBasis: unitModeForOptions(form.unitOptions, form.category) === 'pack' ? '' : UNIT_MODE_BASE[unitModeForOptions(form.unitOptions, form.category)],
         unitPrices: {},
         ...(form.maxQty.trim() !== '' && Number.isFinite(Number(form.maxQty)) && Number(form.maxQty) > 0
           ? { maxQty: Math.floor(Number(form.maxQty)) }
@@ -532,13 +537,17 @@ export default function Products({ globalSearch }: { globalSearch?: string }) {
         const m = d.data() as CustomRow;
         const n = (m.name ?? '').toLowerCase();
         const c = (m.category ?? '').toLowerCase();
-        let mode: 'kilo' | 'portion' | 'piece' | 'glass' = 'portion';
-        if (['beverages'].includes(c) || /juice|shake|lassi|milk|water|drink|soda|tea|coffee|juice|banana|mango|orange|apple/.test(n)) mode = 'glass';
+        let mode: 'kilo' | 'portion' | 'piece' | 'glass' | 'pack' = 'portion';
+        if (/oil|ghee|vanaspati|dalda|refined|mustard oil|sunflower|groundnut/.test(n)) mode = 'pack';
+        else if (['beverages'].includes(c) || /juice|shake|lassi|milk|water|drink|soda|tea|coffee|juice|banana|mango|orange|apple/.test(n)) mode = 'glass';
         else if (['vegetables', 'fruits', 'grocery', 'dals_pulses', 'dairy'].includes(c)) mode = 'kilo';
         else if (['eggs_meat', 'non_veg'].includes(c)) mode = 'piece';
         else if (/egg|momo/.test(n)) mode = 'piece';
         const patch: Record<string, unknown> = { updatedAt: serverTimestamp(), unitPrices: {} };
-        if (mode === 'kilo') {
+        if (mode === 'pack') {
+          Object.assign(patch, { unit: '1 pack', unitOptions: ['500 ml', '1 Litre', '5 Litre'], priceBasis: '' });
+          if (m.maxQty == null) patch.maxQty = 10;
+        } else if (mode === 'kilo') {
           Object.assign(patch, { unit: '1 kg', unitOptions: ['50gm', '100gm', '250gm', '500gm', '1 kg', '2 kg', '5 kg'], priceBasis: '1 kg' });
           if (m.maxQty == null) patch.maxQty = 10;
         } else if (mode === 'piece') {
