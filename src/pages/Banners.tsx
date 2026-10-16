@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, addDoc, type Timestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, addDoc, type Timestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase';
 
@@ -9,6 +9,26 @@ async function uploadBannerImage(file: File): Promise<string> {
   const path = `ai_banners/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const snap = await uploadBytes(ref(storage, path), file, { contentType: file.type || 'image/png' });
   return getDownloadURL(snap.ref);
+}
+
+// Front-page video broadcast upload — MP4/WebM/MOV to front_videos/.
+async function uploadFrontVideo(file: File, onProgress: (pct: number) => void): Promise<string> {
+  const ext = (file.name.split('.').pop() || 'mp4').toLowerCase().slice(0, 4).replace(/[^a-z0-9]/g, '') || 'mp4';
+  const path = `front_videos/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const storageRef = ref(storage, path);
+  // uploadBytesResumable gives progress; fall back to plain uploadBytes.
+  const { uploadBytesResumable } = await import('firebase/storage');
+  const task = uploadBytesResumable(storageRef, file, { contentType: file.type || 'video/mp4' });
+  await new Promise<void>((resolve, reject) => {
+    task.on('state_changed',
+      (snap) => {
+        const pct = snap.totalBytes > 0 ? Math.round((snap.bytesTransferred / snap.totalBytes) * 100) : 0;
+        onProgress(pct);
+      },
+      (err) => reject(err),
+      () => resolve());
+  });
+  return getDownloadURL(storageRef);
 }
 import { useAuth } from '../contexts/AuthContext';
 import { tsToDate, fmtDateTime } from '../utils/helpers';
@@ -114,6 +134,12 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
   // AI studio: prompt → 3 generated frames → approve ALL as animated slideshow draft
   const [aiLoading, setAiLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // 🎬 Front-page video broadcast space
+  const [videoTitle, setVideoTitle] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoPct, setVideoPct] = useState(0);
+  const [videoLive, setVideoLive] = useState(false);
   const [debugData, setDebugData] = useState<string>('');
   const [aiPreviews, setAiPreviews] = useState<{ url: string; seed: number }[]>([]);
   const [aiImgState, setAiImgState] = useState<Record<number, 'loading' | 'ok' | 'error'>>({});
@@ -125,6 +151,15 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
       setRows(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<BannerRow, 'id'>) })));
       setLoading(false);
     }, () => setLoading(false));
+    // Load current front-page video broadcast state
+    getDoc(doc(db, 'app_home_config', 'front_video')).then((s) => {
+      const d = s.data() as { title?: string; videoUrl?: string; isActive?: boolean } | undefined;
+      if (d) {
+        setVideoTitle(d.title ?? '');
+        setVideoUrl(d.videoUrl ?? '');
+        setVideoLive(d.isActive ?? false);
+      }
+    }).catch(() => {});
     return () => unsub();
   }, []);
 
@@ -135,6 +170,53 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
   }, [rows, search, globalSearch]);
 
   const resetAi = () => { setAiLoading(false); setAiPreviews([]); setAiImgState({}); };
+
+  // 🎬 Upload front-page video → Firebase Storage (front_videos/) → preview.
+  const handleVideoUpload = async (file: File) => {
+    const okTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+    const extOk = /\.(mp4|webm|mov)$/i.test(file.name);
+    if (!okTypes.includes(file.type) && !extOk) { setToast({ message: 'MP4 / WebM / MOV video chahiye', type: 'error' }); return; }
+    if (file.size > 100 * 1024 * 1024) { setToast({ message: 'Video 100MB se chhota hona chahiye', type: 'error' }); return; }
+    setVideoUploading(true);
+    setVideoPct(0);
+    try {
+      const url = await uploadFrontVideo(file, setVideoPct);
+      setVideoUrl(url);
+      setToast({ message: '🎬 Video uploaded ✅ — ab Broadcast dabao', type: 'success' });
+    } catch (e: unknown) {
+      setToast({ message: e instanceof Error ? e.message : 'Video upload failed', type: 'error' });
+    }
+    setVideoUploading(false);
+  };
+
+  // 🎬 Broadcast ON/OFF — writes app_home_config/front_video, app plays it live.
+  const handleBroadcast = async (active: boolean) => {
+    if (active && !videoUrl.trim()) { setToast({ message: 'Pehle video upload karo ya URL paste karo', type: 'error' }); return; }
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'app_home_config', 'front_video'), {
+        title: videoTitle.trim(),
+        videoUrl: videoUrl.trim(),
+        isActive: active,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setVideoLive(active);
+      await addDoc(collection(db, 'admin_audit_logs'), {
+        adminPhone: user?.uid ?? 'admin',
+        adminName: adminName || 'Admin',
+        action: active ? 'frontVideoBroadcast' : 'frontVideoStopped',
+        targetId: 'front_video',
+        targetType: 'front_video',
+        metadata: { title: videoTitle.trim() },
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+      setToast({ message: active ? '📡 LIVE — sab customers ke front page par video chal raha hai' : '⏹️ Broadcast stopped — video hidden from app', type: 'success' });
+    } catch (e: unknown) {
+      setToast({ message: e instanceof Error ? e.message : 'Broadcast failed', type: 'error' });
+    }
+    setSaving(false);
+  };
 
   // Upload apni image → Firebase Storage (ai_banners/) → public URL auto-fill.
   const handleImageUpload = async (file: File) => {
@@ -390,6 +472,57 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
 
   return (
     <div className="page">
+      {/* ── 🎬 FRONT-PAGE VIDEO BROADCAST ─────────────────────────────── */}
+      <div style={{ background: 'linear-gradient(135deg, #1F2937, #4C1D95)', borderRadius: 16, padding: 18, marginBottom: 16, color: '#fff' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 22 }}>📡</span>
+          <h3 style={{ margin: 0, fontSize: 17 }}>Front-Page Video Broadcast</h3>
+          {videoLive
+            ? <span className="badge badge-active" style={{ background: '#EF4444', color: '#fff' }}>🔴 LIVE on all customer apps</span>
+            : <span className="badge badge-pending">⚪ OFF AIR</span>}
+        </div>
+        <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#D1D5DB' }}>Video upload karo → Broadcast dabao → turant sab customers ke home page par chalega. Stop dabao → gayab. Koi app update nahi.</p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div style={{ flex: '1 1 220px', minWidth: 200 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB' }}>Title (optional)</label>
+            <input
+              placeholder="e.g. Diwali Dhamaka Offer"
+              value={videoTitle}
+              onChange={(e) => setVideoTitle(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #4B5563', background: '#111827', color: '#fff', fontSize: 14, marginTop: 4 }}
+            />
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB', marginTop: 10, display: 'block' }}>Video URL (ya neeche upload karo)</label>
+            <input
+              placeholder="https://…/promo.mp4"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #4B5563', background: '#111827', color: '#fff', fontSize: 14, marginTop: 4 }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <label className="btn btn-sm" style={{ cursor: videoUploading ? 'wait' : 'pointer', opacity: videoUploading ? 0.6 : 1, background: '#7C3AED', color: '#fff' }}>
+                {videoUploading ? `⏳ Uploading ${videoPct}%...` : '📤 Upload Video (MP4 ≤100MB)'}
+                <input type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" hidden disabled={videoUploading}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleVideoUpload(f); e.target.value = ''; }} />
+              </label>
+              {!videoLive
+                ? <button className="btn btn-sm btn-success" disabled={saving || videoUploading} onClick={() => handleBroadcast(true)}>📡 Broadcast LIVE</button>
+                : <button className="btn btn-sm btn-danger" disabled={saving} onClick={() => handleBroadcast(false)}>⏹️ Stop Broadcast</button>}
+            </div>
+            {videoUploading && (
+              <div style={{ height: 8, borderRadius: 6, background: '#374151', marginTop: 10, overflow: 'hidden' }}>
+                <div style={{ width: `${videoPct}%`, height: '100%', background: 'linear-gradient(90deg,#F59E0B,#EF4444)', transition: 'width .2s' }} />
+              </div>
+            )}
+          </div>
+          <div style={{ flex: '0 1 280px', minWidth: 220 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#E5E7EB', marginBottom: 6 }}>📱 Customer preview</div>
+            {videoUrl.trim()
+              ? <video src={videoUrl.trim()} style={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 12, display: 'block', background: '#000' }} controls muted loop playsInline />
+              : <div style={{ border: '2px dashed #4B5563', borderRadius: 12, padding: 28, textAlign: 'center', fontSize: 13, color: '#9CA3AF' }}>🎬 Video yahan dikhega</div>}
+          </div>
+        </div>
+      </div>
+
       <div className="filters-bar">
         <div className="filters-row">
           <div className="search-wrap">
