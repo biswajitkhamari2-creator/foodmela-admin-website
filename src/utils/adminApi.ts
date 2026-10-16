@@ -41,10 +41,21 @@ export function getAdminToken(): string | null {
   return _cached;
 }
 
+/** Direct Firebase ID token fallback — the backend accepts it on admin
+ * endpoints via isAdminCaller. Used when the apiToken mint fails (e.g.
+ * localStorage-bypass login where auth.currentUser may still exist). */
+async function directIdToken(): Promise<string | null> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return null;
+    return await user.getIdToken();
+  } catch { return null; }
+}
+
 /** Fetch with the admin apiToken attached; mints on first use. */
 export async function adminFetch(path: string, init?: RequestInit): Promise<Response> {
   let token = getAdminToken();
-  if (!token) token = await mintAdminToken();
+  if (!token) token = (await mintAdminToken()) ?? (await directIdToken());
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((init?.headers as Record<string, string> | undefined) ?? {}),
@@ -52,10 +63,10 @@ export async function adminFetch(path: string, init?: RequestInit): Promise<Resp
   if (token) headers['Authorization'] = `Bearer ${token}`;
   let res = await fetch(`${BACKEND_BASE}${path}`, { ...init, headers });
   if (res.status === 401 || res.status === 403) {
-    // Token stale — mint fresh once and retry.
+    // Token stale — mint fresh once and retry, else raw Firebase ID token.
     _cached = null;
     try { sessionStorage.removeItem('fm_admin_api_token'); } catch { /* ignore */ }
-    token = await mintAdminToken();
+    token = (await mintAdminToken()) ?? (await directIdToken());
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
       res = await fetch(`${BACKEND_BASE}${path}`, { ...init, headers });

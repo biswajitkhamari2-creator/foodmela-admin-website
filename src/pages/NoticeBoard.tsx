@@ -61,6 +61,9 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
   const [quickActionText, setQuickActionText] = useState('Order Now');
   const [quickSendPush, setQuickSendPush] = useState(true);
   const [quickPosting, setQuickPosting] = useState(false);
+  const [lastDebug, setLastDebug] = useState<string>('');
+  // 'splash' = sirf phone push (app mein save nahi), 'inapp' = app banner mein save
+  const [quickMode, setQuickMode] = useState<'splash' | 'inapp'>('splash');
 
   const handleQuickTone = (type: NoticeRow['type'], icon: string, badge: string) => {
     setQuickType(type);
@@ -81,6 +84,58 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
 
     setQuickPosting(true);
     try {
+      // SPLASH mode: sirf phone push — app mein save nahi hota
+      if (quickMode === 'splash') {
+        if (!quickSendPush) {
+          setToast({ message: 'Splash mode mein phone push ON hona zaroori hai', type: 'error' });
+          return;
+        }
+        const dbg: string[] = [];
+        try {
+          const { adminFetch, BACKEND_BASE, getAdminToken } = await import('../utils/adminApi');
+          dbg.push(`backend=${BACKEND_BASE || '(same-origin)'}`);
+          dbg.push(`hasApiToken=${!!getAdminToken()}`);
+          let res: Response;
+          try {
+            res = await adminFetch('/api/admin/broadcast', {
+              method: 'POST',
+              body: JSON.stringify({
+                title: `${quickIcon} ${quickTitle.trim()}`.trim(),
+                body: quickMessage.trim(),
+              }),
+            });
+          } catch (fetchErr) {
+            const msg = `❌ Request never left the browser: ${(fetchErr as Error).message}.`;
+            setLastDebug([...dbg, `fetch threw: ${(fetchErr as Error).message}`].join('\n'));
+            setToast({ message: msg, type: 'error' });
+            setQuickTitle('');
+            setQuickMessage('');
+            return;
+          }
+          const raw = await res.text().catch(() => '');
+          let data: { pushed?: boolean; error?: string } | null = null;
+          try { data = raw ? JSON.parse(raw) : null; } catch { /* non-JSON */ }
+          dbg.push(`http=${res.status}`);
+          dbg.push(`serverBody=${raw.slice(0, 200) || '(empty)'}`);
+          setLastDebug(dbg.join('\n'));
+          if (res.ok && data?.pushed) {
+            setToast({ message: '🚀 Splash sent! Phone notification delivered (app mein save nahi hua).', type: 'success' });
+          } else if (res.ok) {
+            setToast({ message: '⚠️ Splash request gaya par server ne push reject kiya (pushed=false).', type: 'error' });
+          } else {
+            setToast({ message: `❌ Splash FAILED (server ${res.status}: ${data?.error || raw.slice(0, 80) || 'unknown'}).`, type: 'error' });
+          }
+        } catch (e) {
+          const msg = `❌ Splash request failed (${(e as Error).message}).`;
+          setLastDebug([...dbg, `outer threw: ${(e as Error).message}`].join('\n'));
+          setToast({ message: msg, type: 'error' });
+        }
+        setQuickTitle('');
+        setQuickMessage('');
+        return;
+      }
+
+      // IN-APP mode: app banner mein save (push optional)
       // 1. Deactivate other active notices so this one takes spotlight
       for (const r of rows.filter((x) => x.isActive)) {
         await updateDoc(doc(db, 'app_notices', r.id), { isActive: false, updatedAt: serverTimestamp() }).catch(() => {});
@@ -105,23 +160,45 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
 
       // 2. Broadcast via FCM phone push notification
       if (quickSendPush) {
+        const dbg: string[] = [];
         try {
-          const { adminFetch } = await import('../utils/adminApi');
-          const res = await adminFetch('/api/admin/broadcast', {
-            method: 'POST',
-            body: JSON.stringify({
-              title: `${quickIcon} ${quickTitle.trim()}`.trim(),
-              body: quickMessage.trim(),
-            }),
-          });
-          const data = await res.json().catch(() => null);
-          if (data?.pushed) {
-            setToast({ message: '🚀 Broadcast published! Phone notification sent to all users!', type: 'success' });
-          } else {
-            setToast({ message: 'Notice live on customer app! (Phone push sent)', type: 'success' });
+          const { adminFetch, BACKEND_BASE, getAdminToken } = await import('../utils/adminApi');
+          dbg.push(`backend=${BACKEND_BASE || '(same-origin)'}`);
+          dbg.push(`hasApiToken=${!!getAdminToken()}`);
+          let res: Response;
+          try {
+            res = await adminFetch('/api/admin/broadcast', {
+              method: 'POST',
+              body: JSON.stringify({
+                title: `${quickIcon} ${quickTitle.trim()}`.trim(),
+                body: quickMessage.trim(),
+              }),
+            });
+          } catch (fetchErr) {
+            const msg = `❌ Request never left the browser: ${(fetchErr as Error).message}. Banner is live, phones won't buzz.`;
+            setLastDebug([...dbg, `fetch threw: ${(fetchErr as Error).message}`].join('\n'));
+            setToast({ message: msg, type: 'error' });
+            setQuickTitle('');
+            setQuickMessage('');
+            return;
           }
-        } catch {
-          setToast({ message: 'Notice live on customer app banner!', type: 'success' });
+          const raw = await res.text().catch(() => '');
+          let data: { pushed?: boolean; error?: string } | null = null;
+          try { data = raw ? JSON.parse(raw) : null; } catch { /* non-JSON */ }
+          dbg.push(`http=${res.status}`);
+          dbg.push(`serverBody=${raw.slice(0, 200) || '(empty)'}`);
+          setLastDebug(dbg.join('\n'));
+          if (res.ok && data?.pushed) {
+            setToast({ message: '🚀 Broadcast published! Phone notification sent to all users!', type: 'success' });
+          } else if (res.ok) {
+            setToast({ message: `⚠️ Notice saved, but phone push FAILED (server: pushed=false). Banner is live, phones won't buzz.`, type: 'error' });
+          } else {
+            setToast({ message: `❌ Phone push FAILED (server ${res.status}: ${data?.error || raw.slice(0, 80) || 'unknown'}). Banner is live, phones won't buzz.`, type: 'error' });
+          }
+        } catch (e) {
+          const msg = `❌ Phone push request failed (${(e as Error).message}). Banner is live, phones won't buzz.`;
+          setLastDebug([...dbg, `outer threw: ${(e as Error).message}`].join('\n'));
+          setToast({ message: msg, type: 'error' });
         }
       } else {
         setToast({ message: 'Notice bar activated and live for all customers!', type: 'success' });
@@ -239,13 +316,15 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
               }),
             });
             const data = await res.json().catch(() => null);
-            if (data?.pushed) {
+            if (res.ok && data?.pushed) {
               setToast({ message: 'Notice published & phone notification sent! 📲', type: 'success' });
+            } else if (res.ok) {
+              setToast({ message: '⚠️ Notice saved, but phone push FAILED (pushed=false). Banner live, phones won\'t buzz.', type: 'error' });
             } else {
-              setToast({ message: 'Notice published (phone push failed — banner still live)', type: 'error' });
+              setToast({ message: `❌ Phone push FAILED (server ${res.status}: ${data?.error || 'unknown'}). Banner live, phones won't buzz.`, type: 'error' });
             }
           } catch {
-            setToast({ message: 'Notice published (phone push failed — banner still live)', type: 'error' });
+            setToast({ message: '❌ Phone push request failed (network/auth). Banner live, phones won\'t buzz.', type: 'error' });
           }
         } else {
           setToast({ message: 'New notice published & broadcasted to all users!', type: 'success' });
@@ -295,62 +374,68 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
   };
 
   return (
-    <div className="page-container p-6 space-y-6">
+    <div className="notice-page">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 shadow-2xl">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">📢</span>
-            <h1 className="text-2xl font-black text-white tracking-tight">Customer Notice Board</h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-gradient-to-r from-orange-500 to-amber-500 text-white uppercase tracking-wider">
-              Live Broadcast
-            </span>
-          </div>
-          <p className="text-xs sm:text-sm text-slate-400">
+      <div className="notice-hero">
+        <div>
+          <h1>
+            <span>📢</span>
+            Customer Notice Board
+            <span className="notice-live-pill">Live Broadcast</span>
+          </h1>
+          <p>
             Post instant broadcast messages, festive announcements, service alerts, or holiday notices visible to all customers on both the Mobile App and Website in real time.
           </p>
         </div>
-        <button
-          onClick={openNew}
-          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-sm shadow-lg shadow-orange-500/25 active:scale-95 transition-all"
-        >
-          <span>➕</span>
-          <span>Create New Notice</span>
+        <button onClick={openNew} className="btn btn-primary" style={{ padding: '12px 22px', fontSize: 14 }}>
+          ➕ Create New Notice
         </button>
       </div>
 
       {/* 👑 PREMIUM INSTANT QUICK NOTICE BROADCASTER BAR */}
-      <div className="bg-gradient-to-br from-slate-900 via-slate-800/95 to-slate-900 border-2 border-amber-500/40 rounded-3xl p-6 shadow-2xl relative overflow-hidden space-y-5">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-4">
-          <div className="flex items-center gap-2.5">
-            <span className="p-2 rounded-xl bg-amber-500/20 text-amber-300 text-xl">👑</span>
-            <div>
-              <h2 className="text-lg font-black text-white flex items-center gap-2">
-                Instant Premium Notice Broadcaster
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                  PUSH TO ALL USERS
-                </span>
-              </h2>
-              <p className="text-xs text-slate-400">
+      <div className="notice-broadcaster">
+        <div className="notice-broadcaster-head">
+          <div>
+            <h2>
+              <span>👑</span>
+              Instant Premium Notice Broadcaster
+              <span className="notice-live-pill">Push to all users</span>
+            </h2>
+              <p style={{ fontSize: 12, color: '#B45309', margin: '4px 0 0' }}>
                 Write here to immediately update the Home Screen Notice Bar on all customer phones and optionally buzz their phone with a push notification.
               </p>
             </div>
-          </div>
-          <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold self-start sm:self-center">
-            ● Real-Time Cloud Sync
-          </span>
+            <span className="notice-sync-pill">● Real-Time Cloud Sync</span>
         </div>
 
         {/* Form Inputs */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-7 space-y-4">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Mode selector: Splash vs In-App */}
+            <div>
+              <label className="notice-label">1. Delivery Mode</label>
+              <div className="notice-tone-row">
+                <button
+                  type="button"
+                  onClick={() => setQuickMode('splash')}
+                  className={`notice-tone-btn${quickMode === 'splash' ? ' active' : ''}`}
+                >
+                  🔔 Splash — Sirf Phone Push (app mein nahi)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickMode('inapp')}
+                  className={`notice-tone-btn${quickMode === 'inapp' ? ' active' : ''}`}
+                >
+                  📱 In-App — App Banner mein save
+                </button>
+              </div>
+            </div>
+
             {/* Tone selector */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
-                1. Select Notice Tone / Style
-              </label>
-              <div className="flex flex-wrap gap-2">
+              <label className="notice-label">2. Select Notice Tone / Style</label>
+              <div className="notice-tone-row">
                 {[
                   { type: 'offer' as const, icon: '🎉', badge: 'SPECIAL OFFER', label: 'Festive / Offer 🎉' },
                   { type: 'info' as const, icon: '📢', badge: 'ANNOUNCEMENT', label: 'Announcement 📢' },
@@ -362,11 +447,7 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
                     key={t.type}
                     type="button"
                     onClick={() => handleQuickTone(t.type, t.icon, t.badge)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                      quickType === t.type
-                        ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md scale-105'
-                        : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-700'
-                    }`}
+                    className={`notice-tone-btn${quickType === t.type ? ' active' : ''}`}
                   >
                     {t.label}
                   </button>
@@ -376,89 +457,71 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
 
             {/* Headline Title */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
-                2. Headline / Title *
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg">{quickIcon}</span>
+              <label className="notice-label">2. Headline / Title *</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 20 }}>{quickIcon}</span>
                 <input
                   type="text"
                   value={quickTitle}
                   onChange={(e) => setQuickTitle(e.target.value)}
-                  placeholder="e.g. Flat 50% OFF on all Biryanis Today! / Delivery is super fast"
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-950/80 border border-slate-700 text-white placeholder-slate-500 text-sm focus:border-amber-500 focus:outline-none transition-all"
+                  placeholder="e.g. Flat 50% OFF on all Biryanis Today!"
+                  className="notice-input"
                 />
               </div>
             </div>
 
             {/* Notice Message */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5 uppercase tracking-wider">
-                3. Notice Message to All Users *
-              </label>
+              <label className="notice-label">3. Notice Message to All Users *</label>
               <textarea
                 rows={3}
                 value={quickMessage}
                 onChange={(e) => setQuickMessage(e.target.value)}
-                placeholder="Write message details for the app banner and push notification (e.g. Order before 3 PM to enjoy fresh hot food with fast 45-min delivery!)..."
-                className="w-full px-4 py-3 rounded-2xl bg-slate-950/80 border border-slate-700 text-white placeholder-slate-500 text-sm focus:border-amber-500 focus:outline-none transition-all resize-none"
+                placeholder="Write message details for the app banner and push notification..."
+                className="notice-textarea"
+                style={{ resize: 'none' }}
               />
             </div>
 
             {/* Optional CTA & Push Checkbox */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, alignItems: 'end' }}>
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1 uppercase tracking-wider">
-                  Button Action (Optional)
-                </label>
+                <label className="notice-label">Button Action (Optional)</label>
                 <input
                   type="text"
                   value={quickActionText}
                   onChange={(e) => setQuickActionText(e.target.value)}
                   placeholder="e.g. Order Now, Explore Menu"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-slate-700 text-white placeholder-slate-500 text-xs focus:border-amber-500 focus:outline-none"
+                  className="notice-input"
                 />
               </div>
 
-              <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/50 border border-slate-700/80 cursor-pointer hover:bg-slate-950 transition-all select-none mt-4 sm:mt-5">
+              <label className="notice-push-row">
                 <input
                   type="checkbox"
                   checked={quickSendPush}
                   onChange={(e) => setQuickSendPush(e.target.checked)}
-                  className="w-4 h-4 rounded text-orange-500 bg-slate-800 border-slate-600 focus:ring-orange-500 cursor-pointer"
                 />
-                <span className="text-xs font-bold text-slate-200">
-                  📲 Send Phone Push (FCM Buzz to all devices)
-                </span>
+                <span>📲 Send Phone Push (FCM Buzz to all devices)</span>
               </label>
             </div>
 
             {/* Big Push Action Button */}
-            <div className="pt-2 flex items-center gap-3">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 4 }}>
               <button
                 type="button"
                 disabled={quickPosting}
                 onClick={() => void handleQuickPush()}
-                className="flex-1 py-3.5 px-6 rounded-2xl font-black text-sm uppercase tracking-wider text-slate-950 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 hover:from-amber-300 hover:via-orange-300 hover:to-amber-400 shadow-xl shadow-orange-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="notice-push-btn"
               >
-                {quickPosting ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>Broadcasting to all users...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>🚀</span>
-                    <span>PUSH TO ALL USERS NOW</span>
-                  </>
-                )}
+                {quickPosting ? 'Broadcasting to all users...' : '🚀 PUSH TO ALL USERS NOW'}
               </button>
 
               {(quickTitle || quickMessage) && (
                 <button
                   type="button"
                   onClick={() => { setQuickTitle(''); setQuickMessage(''); }}
-                  className="px-4 py-3.5 rounded-2xl text-xs font-bold text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700"
+                  className="notice-clear-btn"
                 >
                   Clear
                 </button>
@@ -467,55 +530,42 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
           </div>
 
           {/* Right Column: Live In-App Mobile Preview */}
-          <div className="lg:col-span-5 flex flex-col justify-between p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-4">
+          <div style={{ background: '#FFF7ED', border: '1.5px solid #FDBA74', borderRadius: 16, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
-                <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                  <span>📱</span> Live App Bar Preview
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #FDE68A', paddingBottom: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, color: '#B45309' }}>
+                  📱 Live App Bar Preview
                 </span>
-                <span className="text-[10px] text-slate-500 font-mono">Customer Screen</span>
+                <span style={{ fontSize: 10, color: '#9CA3AF' }}>Customer Screen</span>
               </div>
-              <p className="text-[11px] text-slate-400 mb-3">
+              <p style={{ fontSize: 11, color: '#92400E', margin: '0 0 10px' }}>
                 This is how the notice bar appears inside FoodMela Customer App:
               </p>
 
               {/* Simulated Customer App Notice Banner */}
-              <div
-                className={`p-4 rounded-2xl text-white shadow-xl space-y-2 border border-white/20 transition-all ${
-                  quickType === 'offer'
-                    ? 'bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 shadow-orange-600/30'
-                    : quickType === 'celebration'
-                    ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 shadow-emerald-600/30'
-                    : quickType === 'alert'
-                    ? 'bg-gradient-to-r from-amber-700 via-orange-700 to-red-700 shadow-red-600/30'
-                    : quickType === 'emergency'
-                    ? 'bg-gradient-to-r from-red-700 via-rose-700 to-red-800 shadow-rose-700/30'
-                    : 'bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 shadow-indigo-600/30'
-                }`}
-              >
-                <div className="flex items-start gap-2.5">
-                  <span className="text-2xl p-1.5 rounded-xl bg-white/15 backdrop-blur-sm">
+              <div className={`notice-preview-card notice-preview-${quickType}`}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 24, background: 'rgba(255,255,255,0.2)', borderRadius: 10, padding: 6 }}>
                     {quickIcon || '📢'}
                   </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-black/40 text-amber-200 border border-white/20">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ marginBottom: 4 }}>
+                      <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, background: 'rgba(0,0,0,0.35)', padding: '2px 8px', borderRadius: 6 }}>
                         {quickBadge || 'NOTICE'}
                       </span>
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                     </div>
-                    <h4 className="text-sm font-black text-white leading-tight">
+                    <h4 style={{ fontSize: 14, fontWeight: 800, margin: '0 0 4px', lineHeight: 1.3 }}>
                       {quickTitle.trim() || 'Your Announcement Headline Here'}
                     </h4>
-                    <p className="text-xs text-white/90 leading-relaxed mt-1">
+                    <p style={{ fontSize: 12, margin: 0, opacity: 0.92, lineHeight: 1.5 }}>
                       {quickMessage.trim() || 'Your live message will display right here for all customers.'}
                     </p>
                   </div>
                 </div>
 
                 {quickActionText && (
-                  <div className="flex justify-end pt-1">
-                    <span className="px-3 py-1 rounded-xl bg-white text-slate-900 font-black text-[11px] shadow-md">
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8 }}>
+                    <span style={{ padding: '4px 12px', borderRadius: 8, background: '#fff', color: '#1F2937', fontWeight: 800, fontSize: 11 }}>
                       {quickActionText} →
                     </span>
                   </div>
@@ -523,72 +573,74 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
               </div>
             </div>
 
-            <div className="text-[11px] text-slate-500 bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2">
-              <span>⚡</span>
-              <span>Publishing activates this notice instantly across all connected phones without app restart.</span>
+            <div style={{ fontSize: 11, color: '#92400E', background: '#FFFBEB', padding: 10, borderRadius: 10, border: '1px solid #FDE68A' }}>
+              ⚡ Publishing activates this notice instantly across all connected phones without app restart.
             </div>
+
+            {lastDebug && (
+              <div className="notice-debug-box">
+                <strong>🔍 LAST PUSH DEBUG (screenshot bhejo):</strong>
+                {lastDebug}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Live Active Notice Preview Banner */}
       {activeNotice && (
-        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-orange-500/30 rounded-3xl p-5 shadow-2xl space-y-3 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-              <span className="text-xs font-black uppercase tracking-wider text-emerald-400">
-                Currently Live on All Customer Devices
-              </span>
-            </div>
-            <button
-              onClick={() => toggleActive(activeNotice)}
-              className="text-xs px-3 py-1 rounded-full font-bold bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 transition-all"
-            >
+        <div className="notice-live-banner">
+          <div className="notice-live-banner-head">
+            <span className="notice-live-label">
+              <span className="notice-live-dot" />
+              Currently Live on All Customer Devices
+            </span>
+            <button onClick={() => toggleActive(activeNotice)} className="btn btn-sm" style={{ background: '#FEE2E2', color: '#B91C1C', border: '1px solid #FCA5A5' }}>
               Deactivate Notice
             </button>
           </div>
 
-          <div className={`p-4 rounded-2xl bg-gradient-to-r ${NOTICE_TYPES.find(t => t.value === activeNotice.type)?.color || 'from-blue-600 to-indigo-600'} text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
-            <div className="flex items-start gap-3">
-              <span className="text-3xl p-2 rounded-xl bg-white/10 backdrop-blur-sm">{activeNotice.icon || '📢'}</span>
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest bg-black/30 text-white border border-white/20">
+          <div className={`notice-preview-card notice-preview-${activeNotice.type}`}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 30 }}>{activeNotice.icon || '📢'}</span>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, background: 'rgba(0,0,0,0.3)', padding: '2px 8px', borderRadius: 6 }}>
                     {activeNotice.badge || 'NOTICE'}
                   </span>
-                  <strong className="text-base font-black">{activeNotice.title}</strong>
+                  <strong style={{ fontSize: 16 }}>{activeNotice.title}</strong>
                 </div>
-                <p className="text-xs sm:text-sm text-white/90 leading-relaxed max-w-2xl">{activeNotice.message}</p>
+                <p style={{ fontSize: 13, margin: '4px 0 0', opacity: 0.92 }}>{activeNotice.message}</p>
               </div>
+              {activeNotice.actionText && (
+                <span style={{ padding: '8px 16px', borderRadius: 10, background: '#fff', color: '#1F2937', fontWeight: 800, fontSize: 12 }}>
+                  {activeNotice.actionText} →
+                </span>
+              )}
             </div>
-            {activeNotice.actionText && (
-              <span className="self-start sm:self-center px-4 py-2 rounded-xl bg-white text-slate-900 font-extrabold text-xs shadow-md whitespace-nowrap">
-                {activeNotice.actionText} →
-              </span>
-            )}
           </div>
         </div>
       )}
 
       {/* Notices List Section */}
-      <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+      <div className="notice-section">
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid #F3F4F6', paddingBottom: 14, marginBottom: 16 }}>
           <div>
-            <h2 className="text-lg font-bold text-white">Broadcast History &amp; Saved Notices</h2>
-            <p className="text-xs text-slate-400">Total {rows.length} notices created</p>
+            <h2>Broadcast History &amp; Saved Notices</h2>
+            <p style={{ fontSize: 12, color: '#6B7280', margin: '2px 0 0' }}>Total {rows.length} notices created</p>
           </div>
           <input
             type="text"
             placeholder="Search notices..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="px-4 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-orange-500 w-full sm:w-64"
+            className="notice-input"
+            style={{ maxWidth: 260 }}
           />
         </div>
 
         {loading ? (
-          <div className="py-12 text-center text-slate-400 text-sm">Loading broadcast notices...</div>
+          <div style={{ padding: '48px 0', textAlign: 'center', color: '#6B7280', fontSize: 14 }}>Loading broadcast notices...</div>
         ) : filtered.length === 0 ? (
           <EmptyState
             icon="📢"
@@ -596,57 +648,45 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
             subtitle="Create your first notice to broadcast announcements to your customers."
           />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="notice-card-grid">
             {filtered.map((item) => {
               const typeCfg = NOTICE_TYPES.find((t) => t.value === item.type) || NOTICE_TYPES[0];
               return (
-                <div
-                  key={item.id}
-                  className={`p-5 rounded-2xl border transition-all ${item.isActive ? 'bg-slate-800/90 border-orange-500/50 shadow-lg shadow-orange-500/10' : 'bg-slate-800/40 border-slate-700/60 opacity-80'} flex flex-col justify-between gap-4`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">{item.icon || '📢'}</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest bg-slate-700 text-orange-400 border border-orange-500/20">
+                <div key={item.id} className={`notice-card${item.isActive ? ' live' : ''}`}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 20 }}>{item.icon || '📢'}</span>
+                        <span className={`notice-type-tag notice-type-${item.type}`}>
                           {item.badge || 'NOTICE'}
                         </span>
-                        <span className="text-xs font-semibold text-slate-400">{typeCfg.label}</span>
                       </div>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${item.isActive ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-700/50 text-slate-400'}`}>
+                      <span className={item.isActive ? 'notice-status-live' : 'notice-status-off'}>
                         {item.isActive ? '● Live Active' : '○ Inactive'}
                       </span>
                     </div>
 
-                    <h3 className="text-base font-bold text-white">{item.title}</h3>
-                    <p className="text-xs text-slate-300 leading-relaxed">{item.message}</p>
+                    <h3>{item.title}</h3>
+                    <p>{item.message}</p>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 4 }}>{typeCfg.label}</div>
 
                     {item.actionText && (
-                      <div className="text-[11px] text-orange-400 font-semibold pt-1">
-                        Button: <span className="underline">{item.actionText}</span> {item.actionUrl ? `(${item.actionUrl})` : ''}
+                      <div style={{ fontSize: 11, color: '#EA580C', fontWeight: 600, paddingTop: 4 }}>
+                        Button: <span style={{ textDecoration: 'underline' }}>{item.actionText}</span> {item.actionUrl ? `(${item.actionUrl})` : ''}
                       </div>
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-700/50 text-xs">
-                    <button
-                      onClick={() => toggleActive(item)}
-                      className={`px-3 py-1.5 rounded-xl font-bold transition-all ${item.isActive ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'}`}
-                    >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid #F3F4F6', fontSize: 12 }}>
+                    <button onClick={() => toggleActive(item)} className="btn btn-sm" style={item.isActive ? { background: '#FEF3C7', color: '#B45309' } : { background: '#D1FAE5', color: '#047857' }}>
                       {item.isActive ? 'Turn Off' : 'Publish Live'}
                     </button>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => openEdit(item)}
-                        className="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-semibold transition-all"
-                      >
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => openEdit(item)} className="btn btn-sm btn-ghost">
                         Edit
                       </button>
-                      <button
-                        onClick={() => setDeleting(item)}
-                        className="px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 font-semibold transition-all"
-                      >
+                      <button onClick={() => setDeleting(item)} className="btn btn-sm" style={{ background: '#FEE2E2', color: '#B91C1C' }}>
                         Delete
                       </button>
                     </div>
@@ -660,147 +700,123 @@ export default function NoticeBoard({ globalSearch }: { globalSearch?: string })
 
       {/* Create / Edit Modal Dialog */}
       {form && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl text-white my-8">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">📢</span>
-                <h3 className="text-lg font-bold">
-                  {formId ? 'Edit Broadcast Notice' : 'Create New Broadcast Notice'}
-                </h3>
-              </div>
-              <button onClick={() => setForm(null)} className="text-slate-400 hover:text-white text-lg">✕</button>
+        <div className="dialog-overlay" style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+          <div className="notice-modal">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #F3F4F6', paddingBottom: 12, marginBottom: 16 }}>
+              <h3>
+                <span style={{ marginRight: 8 }}>📢</span>
+                {formId ? 'Edit Broadcast Notice' : 'Create New Broadcast Notice'}
+              </h3>
+              <button onClick={() => setForm(null)} className="btn btn-sm btn-ghost">✕</button>
             </div>
 
-            <div className="space-y-4 text-xs">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 12 }}>
               {/* Type Selection */}
               <div>
-                <label className="block text-slate-300 font-bold mb-1.5">Notice Category / Tone</label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <label className="notice-label">Notice Category / Tone</label>
+                <div className="notice-tone-row">
                   {NOTICE_TYPES.map((t) => (
                     <button
                       key={t.value}
                       type="button"
                       onClick={() => setForm({ ...form, type: t.value as NoticeRow['type'], icon: t.defaultIcon, badge: t.defaultBadge })}
-                      className={`p-2.5 rounded-xl border text-left font-bold transition-all flex items-center gap-1.5 ${form.type === t.value ? 'bg-orange-500/20 border-orange-500 text-orange-300' : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white'}`}
+                      className={`notice-tone-btn${form.type === t.value ? ' active' : ''}`}
                     >
-                      <span>{t.defaultIcon}</span>
-                      <span className="truncate">{t.label.split(' ')[0]}</span>
+                      {t.defaultIcon} {t.label.split(' ')[0]}
                     </button>
                   ))}
                 </div>
               </div>
 
               {/* Title & Badge */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-1">
-                  <label className="block text-slate-300 font-bold mb-1">Badge</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
+                <div>
+                  <label className="notice-label">Badge</label>
                   <input
                     type="text"
                     placeholder="NOTICE"
                     value={form.badge}
                     onChange={(e) => setForm({ ...form, badge: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white font-bold placeholder-slate-500 focus:border-orange-500 focus:outline-none"
+                    className="notice-input"
                   />
                 </div>
-                <div className="col-span-2">
-                  <label className="block text-slate-300 font-bold mb-1">Title *</label>
+                <div>
+                  <label className="notice-label">Title *</label>
                   <input
                     type="text"
                     placeholder="e.g. Free Delivery on Orders Above ₹199!"
                     value={form.title}
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white font-bold placeholder-slate-500 focus:border-orange-500 focus:outline-none"
+                    className="notice-input"
                   />
                 </div>
               </div>
 
               {/* Message */}
               <div>
-                <label className="block text-slate-300 font-bold mb-1">Notice Message *</label>
+                <label className="notice-label">Notice Message *</label>
                 <textarea
                   rows={3}
                   placeholder="Write clear, friendly message in Odia, English, or Hindi..."
                   value={form.message}
                   onChange={(e) => setForm({ ...form, message: e.target.value })}
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:border-orange-500 focus:outline-none resize-none leading-relaxed"
+                  className="notice-textarea"
+                  style={{ resize: 'none' }}
                 />
               </div>
 
               {/* Icon & Action Link */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-1">
-                  <label className="block text-slate-300 font-bold mb-1">Emoji / Icon</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
+                <div>
+                  <label className="notice-label">Emoji / Icon</label>
                   <input
                     type="text"
                     value={form.icon}
                     onChange={(e) => setForm({ ...form, icon: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white font-bold text-center text-lg focus:border-orange-500 focus:outline-none"
+                    className="notice-input"
+                    style={{ textAlign: 'center', fontSize: 18 }}
                   />
                 </div>
-                <div className="col-span-2">
-                  <label className="block text-slate-300 font-bold mb-1">Button Text (Optional)</label>
+                <div>
+                  <label className="notice-label">Button Text (Optional)</label>
                   <input
                     type="text"
                     placeholder="e.g. Order Now / View Offers"
                     value={form.actionText}
                     onChange={(e) => setForm({ ...form, actionText: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder-slate-500 focus:border-orange-500 focus:outline-none"
+                    className="notice-input"
                   />
                 </div>
               </div>
 
               {/* Toggles */}
-              <div className="p-3.5 rounded-2xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-between">
-                <div>
-                  <strong className="text-white block">Publish Live Immediately</strong>
-                  <span className="text-[11px] text-slate-400">Broadcast immediately to mobile app &amp; customer website</span>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.isActive}
-                    onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-                </label>
-              </div>
+              <label className="notice-push-row">
+                <input
+                  type="checkbox"
+                  checked={form.isActive}
+                  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+                />
+                <span>Publish Live Immediately — broadcast to mobile app &amp; website</span>
+              </label>
 
               {/* Phone push toggle — new notices only */}
               {!formId && (
-                <div className="p-3.5 rounded-2xl bg-orange-500/10 border border-orange-500/40 flex items-center justify-between">
-                  <div>
-                    <strong className="text-white block">📲 Phone Notification</strong>
-                    <span className="text-[11px] text-slate-400">Buzz every customer phone, even with the app closed</span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.sendPush}
-                      onChange={(e) => setForm({ ...form, sendPush: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-                  </label>
-                </div>
+                <label className="notice-push-row">
+                  <input
+                    type="checkbox"
+                    checked={form.sendPush}
+                    onChange={(e) => setForm({ ...form, sendPush: e.target.checked })}
+                  />
+                  <span>📲 Phone Notification — buzz every customer phone, even with app closed</span>
+                </label>
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setForm(null)}
-                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-all"
-              >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 16, marginTop: 16, borderTop: '1px solid #F3F4F6' }}>
+              <button type="button" onClick={() => setForm(null)} className="btn btn-ghost">
                 Cancel
               </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={handleSave}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs shadow-lg shadow-orange-500/25 active:scale-95 transition-all disabled:opacity-50"
-              >
+              <button type="button" disabled={saving} onClick={handleSave} className="btn btn-primary">
                 {saving ? 'Publishing...' : formId ? 'Save Changes' : 'Publish Broadcast Notice'}
               </button>
             </div>

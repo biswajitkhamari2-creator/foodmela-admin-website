@@ -14,6 +14,7 @@ import Payments from './pages/Payments';
 import Products from './pages/Products';
 import Categories from './pages/Categories';
 import Banners from './pages/Banners';
+import HomepageBuilder from './pages/HomepageBuilder';
 import NoticeBoard from './pages/NoticeBoard';
 import Promos from './pages/Promos';
 import Customers from './pages/Customers';
@@ -24,6 +25,8 @@ import Withdrawals from './pages/Withdrawals';
 import Analytics from './pages/Analytics';
 import ActivityLogs from './pages/ActivityLogs';
 import CallRecordings from './pages/CallRecordings';
+import Reviews from './pages/Reviews';
+import Wallet from './pages/Wallet';
 import Settings from './pages/Settings';
 
 import AdminSplashLoader from './components/AdminSplashLoader';
@@ -93,6 +96,7 @@ function AdminLayout() {
     '/products': { title: 'Product Prices', subtitle: 'Dynamic pricing — updates the customer app on refresh' },
     '/categories': { title: 'Categories', subtitle: 'App sections — add pharma, travel, insurance with static or animated logos' },
     '/banners': { title: 'Festival Banners', subtitle: 'Home-screen campaigns — no app update needed' },
+    '/homepage': { title: 'Homepage Builder', subtitle: 'Drag-free reorder, edit, preview & publish — live on customer app refresh' },
     '/promos': { title: 'Promo Codes', subtitle: 'Discount coupons — live on customer site instantly' },
     '/customers': { title: 'Customers', subtitle: 'Customer management' },
     '/partners': { title: 'Delivery Partners', subtitle: 'Partner management' },
@@ -101,6 +105,8 @@ function AdminLayout() {
     '/withdrawals': { title: 'Withdrawals', subtitle: 'Rider payout requests — approve after paying' },
     '/analytics': { title: 'Analytics', subtitle: 'Performance insights' },
     '/calls': { title: 'Call Recordings', subtitle: 'Customer ↔ rider VoIP captures — numbers stay hidden' },
+    '/reviews': { title: 'Reviews', subtitle: 'Live customer ratings for riders & food' },
+    '/wallet': { title: 'Wallet', subtitle: 'Customer balances, ledger & adjustments' },
     '/logs': { title: 'Admin Audit Logs', subtitle: 'All administrative actions — immutable record' },
     '/settings': { title: 'Settings', subtitle: 'Maintenance mode — site ON/OFF without deploy' },
   };
@@ -162,6 +168,7 @@ function AdminLayout() {
             <Route path="/products" element={<Products globalSearch={globalSearch} />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/banners" element={<Banners globalSearch={globalSearch} />} />
+            <Route path="/homepage" element={<HomepageBuilder />} />
             <Route path="/notices" element={<NoticeBoard globalSearch={globalSearch} />} />
             <Route path="/notice-board" element={<NoticeBoard globalSearch={globalSearch} />} />
             <Route path="/promos" element={<Promos globalSearch={globalSearch} />} />
@@ -172,6 +179,8 @@ function AdminLayout() {
             <Route path="/withdrawals" element={<Withdrawals />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/calls" element={<CallRecordings globalSearch={globalSearch} />} />
+            <Route path="/reviews" element={<Reviews globalSearch={globalSearch} />} />
+            <Route path="/wallet" element={<Wallet globalSearch={globalSearch} />} />
             <Route path="/logs" element={<ActivityLogs />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>

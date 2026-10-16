@@ -60,6 +60,9 @@ export default function Customers({ globalSearch }: { globalSearch?: string }) {
   const [page, setPage] = useState(1);
   const [confirm, setConfirm] = useState<{ id: string; blocked: boolean } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [editFor, setEditFor] = useState<{ id: string; name: string } | null>(null);
+  const [editName, setEditName] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   // Customers WITH a users doc (new signups + synced users).
   const [userCustomers, setUserCustomers] = useState<UserRecord[]>([]);
@@ -227,6 +230,41 @@ export default function Customers({ globalSearch }: { globalSearch?: string }) {
     setConfirm(null);
   };
 
+  const saveName = async () => {
+    if (!editFor || savingName) return;
+    const name = editName.trim();
+    if (!name || isPlaceholderName(name)) { setToast('Enter the real customer name'); return; }
+    setSavingName(true);
+    try {
+      const digits = editFor.id.replace(/[^0-9]/g, '');
+      const alt = digits.length === 10 ? `91${digits}` : digits.startsWith('91') ? digits.slice(2) : null;
+      const ids = alt && alt !== digits ? [digits, alt] : [digits];
+      for (const id of ids) {
+        await setDoc(doc(db, 'users', id), {
+          phone: id,
+          role: 'customer',
+          name,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+      await addDoc(collection(db, 'admin_audit_logs'), {
+        adminPhone: user?.uid ?? 'admin',
+        adminName: adminName || 'Admin',
+        action: 'customerRenamed',
+        targetId: editFor.id,
+        targetType: 'customer',
+        metadata: { name },
+        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      });
+      setToast(`Name saved: ${name}`);
+      setEditFor(null);
+    } catch (e: unknown) {
+      setToast(e instanceof Error ? e.message : 'Failed to save name');
+    }
+    setSavingName(false);
+  };
+
   if (loading) return <div className="page"><div className="skeleton" style={{ height: 400 }} /></div>;
   if (customers.length === 0) return <div className="page"><EmptyState icon="👥" title="No customers yet" subtitle="Customers will appear after they sign up." /></div>;
 
@@ -255,11 +293,11 @@ export default function Customers({ globalSearch }: { globalSearch?: string }) {
                   return (
                     <tr key={c.id}>
                       <td><div className="cell-main">{c.name || '—'}{c.source === 'orders' && <span className="cell-sub" style={{ marginLeft: 6 }} title="No signup record yet — derived from order history">🧾 orders</span>}</div><div className="cell-sub">{c.id}</div></td>
-                      <td className="cell-sub">{c.id}</td>
+                      <td><div className="cell-main">{c.name || '—'}</div><div className="cell-sub">{c.id}</div></td>
                       <td>{c.email || '—'}</td>
                       <td><span className={`badge ${blocked ? 'badge-blocked' : 'badge-active'}`}>{blocked ? 'BLOCKED' : 'ACTIVE'}</span></td>
                       <td className="cell-sub">{fmtDate(tsToDate(c.createdAt))}</td>
-                      <td><button className={`btn btn-sm ${blocked ? 'btn-success' : 'btn-danger'}`} onClick={() => setConfirm({ id: c.id, blocked })}>{blocked ? 'Unblock' : 'Block'}</button></td>
+                      <td style={{ whiteSpace: 'nowrap' }}><button className="btn btn-sm" style={{ marginRight: 6 }} onClick={() => { setEditFor({ id: c.id, name: c.name }); setEditName(isPlaceholderName(c.name ?? '') ? '' : (c.name ?? '')); }}>✏️ Name</button><button className={`btn btn-sm ${blocked ? 'btn-success' : 'btn-danger'}`} onClick={() => setConfirm({ id: c.id, blocked })}>{blocked ? 'Unblock' : 'Block'}</button></td>
                     </tr>
                   );
                 })}
@@ -271,6 +309,11 @@ export default function Customers({ globalSearch }: { globalSearch?: string }) {
       )}
 
       <ConfirmDialog open={!!confirm} title={confirm?.blocked ? 'Unblock customer?' : 'Block customer?'} message={confirm?.blocked ? 'This customer will regain access to the app.' : 'This customer will be blocked and cannot use restricted features.'} confirmLabel={confirm?.blocked ? 'Unblock' : 'Block'} confirmColor={confirm?.blocked ? '#059669' : '#DC2626'} onConfirm={handleToggle} onCancel={() => setConfirm(null)} />
+      <ConfirmDialog open={!!editFor} title={`✏️ Edit name — ${editFor?.id ?? ''}`} message="Type the customer's real name. It saves to their profile and shows on Orders, Invoices and Dashboard instantly." confirmLabel={savingName ? 'Saving…' : 'Save name'} confirmColor="#2563EB" onConfirm={saveName} onCancel={() => setEditFor(null)}>
+        <div style={{ marginTop: 12 }}>
+          <input className="input" placeholder="e.g. Rahul Sharma" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus style={{ width: '100%' }} />
+        </div>
+      </ConfirmDialog>
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );

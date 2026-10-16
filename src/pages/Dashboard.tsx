@@ -97,6 +97,12 @@ export default function Dashboard() {
       }
     }
 
+    // Customers
+    let totalCustomers = 0;
+    for (const u of users) {
+      if (u.role === 'customer' || u.role === 'user' || (!u.role && (u as { phone?: string }).phone)) totalCustomers++;
+    }
+
     // Partners
     let totalPartners = 0, activePartners = 0, pendingApprovals = 0, delivering = 0;
     const deliveringIds = new Set(orders.filter((o) => o.stage === 1 || o.stage === 2).map((o) => o.riderId).filter(Boolean));
@@ -134,7 +140,7 @@ export default function Dashboard() {
     return {
       pending, accepted, outForDelivery, delivered, cancelled, activeOrders,
       todayOrders, todayRevenue, totalRevenue,
-      totalPartners, activePartners, pendingApprovals, delivering,
+      totalPartners, activePartners, pendingApprovals, delivering, totalCustomers,
       categories, trend, maxTrendOrders,
       totalOrders: orders.length,
     };
@@ -173,8 +179,50 @@ export default function Dashboard() {
     );
   }
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const todayStr = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+
   return (
     <div className="dash">
+
+      {/* ── GREETING HEADER (screenshot style) ───────────────────────────── */}
+      <div className="fm-greet">
+        <div>
+          <p className="fm-greet-date">{todayStr}</p>
+          <h2 className="fm-greet-title">{greeting}, Admin.</h2>
+          <p className="fm-greet-sub">Here&apos;s what&apos;s happening with your restaurant today.</p>
+        </div>
+      </div>
+
+      {/* ── SCREENSHOT STAT STRIP ────────────────────────────────────────── */}
+      <div className="fm-stats">
+        <div className="fm-stat" onClick={() => nav('/earnings')}>
+          <span className="fm-stat-label">Total Revenue</span>
+          <strong className="fm-stat-value">₹{stats.totalRevenue.toLocaleString('en-IN')}</strong>
+          <span className="fm-stat-sub">Compared to last week</span>
+        </div>
+        <div className="fm-stat" onClick={() => nav('/orders')}>
+          <span className="fm-stat-label">Total Orders</span>
+          <strong className="fm-stat-value">{stats.totalOrders.toLocaleString('en-IN')}</strong>
+          <span className="fm-stat-sub">Compared to last week</span>
+        </div>
+        <div className="fm-stat">
+          <span className="fm-stat-label">Average Delivery</span>
+          <strong className="fm-stat-value">{stats.totalOrders > 0 ? Math.round((stats.delivered / stats.totalOrders) * 100) : 0}%</strong>
+          <span className="fm-stat-sub">Compared to last week</span>
+        </div>
+        <div className="fm-stat" onClick={() => nav('/customers')}>
+          <span className="fm-stat-label">New Customers</span>
+          <strong className="fm-stat-value">{stats.totalCustomers.toLocaleString('en-IN')}</strong>
+          <span className="fm-stat-sub">Compared to last week</span>
+        </div>
+        <div className="fm-stat" onClick={() => nav('/orders')}>
+          <span className="fm-stat-label">New Orders</span>
+          <strong className="fm-stat-value">{stats.pending}</strong>
+          <span className="fm-stat-sub">Awaiting assignment</span>
+        </div>
+      </div>
 
       {/* ── TODAY'S OVERVIEW ─────────────────────────────────────────────── */}
       <div className="dash-kpis">

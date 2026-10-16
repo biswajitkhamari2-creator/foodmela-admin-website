@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Toast } from '../components/UI';
 
@@ -25,6 +26,58 @@ export default function Settings() {
   // App + website read these live; hardcoded values are only fallback.
   const [fees, setFees] = useState({ baseFee: '12', perKm: '2', freeAbove: '249', platformFee: '10', smallOrderFee: '20', smallOrderBelow: '100', lunchSurge: '5', dinnerSurge: '5', nightSurge: '5' });
   const [feesSaving, setFeesSaving] = useState(false);
+
+  // ── Festival Theme (app_settings/festival_theme) ──
+  // Customer App home banner + one-time blast. Save → phone par turant live.
+  const [fest, setFest] = useState({
+    isActive: false,
+    festivalName: 'Diwali',
+    mediaType: 'lottie' as 'lottie' | 'video',
+    lottieUrl: 'https://assets2.lottiefiles.com/packages/lf20_u4yrau.json',
+    videoUrl: '',
+    greetingTitle: 'Shubh Deepawali ✨',
+    greetingSubtitle: 'Celebrate with festive sweets & flat 20% OFF',
+    gradientColors: '#7B1E0E,#F21F3D,#FF7900',
+    showOneTimeBlast: true,
+  });
+  const [festSaving, setFestSaving] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Upload MP4 straight to Firebase Storage → videoUrl fills itself in.
+  const uploadVideo = (file: File) => {
+    if (!file.type.startsWith('video/')) {
+      setToast('❌ Sirf video file (MP4) chuno');
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setToast('❌ Video 50 MB se chhota hona chahiye');
+      return;
+    }
+    const stamp = Date.now();
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const r = ref(storage, `festival_videos/${stamp}_${safe}`);
+    const task = uploadBytesResumable(r, file, { contentType: file.type });
+    setUploadPct(0);
+    task.on('state_changed',
+      (snap) => setUploadPct(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+      () => {
+        setUploadPct(null);
+        setToast('❌ Upload fail — dobara try karo');
+      },
+      async () => {
+        try {
+          const url = await getDownloadURL(task.snapshot.ref);
+          setFest((f) => ({ ...f, videoUrl: url, mediaType: 'video' }));
+          setToast('✅ Video upload ho gaya — Activate dabao');
+        } catch {
+          setToast('❌ URL nahi mila — dobara try karo');
+        } finally {
+          setUploadPct(null);
+        }
+      },
+    );
+  };
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'app_settings', 'maintenance'), (snap) => {
@@ -62,6 +115,53 @@ export default function Settings() {
       setToast(`❌ Save failed — ${e instanceof Error ? e.message : e}`);
     } finally {
       setReviewerSaving(false);
+    }
+  };
+
+  // Festival theme — live from Firestore app_settings/festival_theme.
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'app_settings', 'festival_theme'), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setFest((f) => ({
+          ...f,
+          isActive: d.isActive === true,
+          festivalName: String(d.festivalName ?? f.festivalName),
+          mediaType: d.mediaType === 'video' ? 'video' : 'lottie',
+          lottieUrl: String(d.lottieUrl ?? f.lottieUrl),
+          videoUrl: String(d.videoUrl ?? f.videoUrl ?? ''),
+          greetingTitle: String(d.greetingTitle ?? f.greetingTitle),
+          greetingSubtitle: String(d.greetingSubtitle ?? f.greetingSubtitle),
+          gradientColors: Array.isArray(d.gradientColors) ? d.gradientColors.join(',') : String(d.gradientColors ?? f.gradientColors),
+          showOneTimeBlast: d.showOneTimeBlast !== false,
+        }));
+      }
+    }, () => {});
+    return () => unsub();
+  }, []);
+
+  const saveFest = async (active?: boolean) => {
+    setFestSaving(true);
+    try {
+      const colors = fest.gradientColors.split(',').map((c) => c.trim()).filter(Boolean);
+      await setDoc(doc(db, 'app_settings', 'festival_theme'), {
+        isActive: active !== undefined ? active : fest.isActive,
+        festivalName: fest.festivalName.trim(),
+        mediaType: fest.mediaType,
+        lottieUrl: fest.lottieUrl.trim(),
+        videoUrl: fest.videoUrl.trim(),
+        greetingTitle: fest.greetingTitle.trim(),
+        greetingSubtitle: fest.greetingSubtitle.trim(),
+        gradientColors: colors,
+        showOneTimeBlast: fest.showOneTimeBlast,
+        updatedBy: adminName || 'admin',
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setToast(active === false ? '🎉 Festival banner OFF — app se hat gaya' : '🎉 Festival theme saved — app par LIVE ✅');
+    } catch (e) {
+      setToast(`❌ Save failed — ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setFestSaving(false);
     }
   };
 
@@ -300,6 +400,182 @@ export default function Settings() {
             {reviewerSaving ? '...' : reviewerOn ? 'HIDE karo' : 'SHOW karo'}
           </button>
         </div>
+
+      {/* ── 🎉 Festival Theme (Customer App home banner, no app update) ── */}
+      <div className="card" style={{ padding: '24px', marginTop: '16px', border: '1px solid #E2E8F0', borderRadius: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <h2 style={{ margin: 0, fontSize: '18px' }}>🎉 Festival Theme</h2>
+          <span style={{
+            padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 800,
+            background: fest.isActive ? '#DCFCE7' : '#F1F5F9',
+            color: fest.isActive ? '#16A34A' : '#64748B',
+          }}>
+            {fest.isActive ? `🟢 LIVE: ${fest.festivalName}` : '⚪ OFF'}
+          </span>
+        </div>
+        <p style={{ margin: '0 0 16px', color: '#64748B', fontSize: '13px' }}>
+          Save karte hi customer app ke home par animated banner + confetti blast — app update ki zarurat nahi.
+        </p>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 700, minWidth: '150px' }}>Festival name:</label>
+          <input
+            type="text"
+            value={fest.festivalName}
+            onChange={(e) => setFest({ ...fest, festivalName: e.target.value })}
+            placeholder="Diwali"
+            style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+          {(['lottie', 'video'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setFest({ ...fest, mediaType: m })}
+              className="btn"
+              style={{
+                flex: 1, padding: '10px', borderRadius: '10px', fontWeight: 800, fontSize: '13px',
+                cursor: 'pointer', border: 'none',
+                background: fest.mediaType === m ? '#7C3AED' : '#F1F5F9',
+                color: fest.mediaType === m ? '#fff' : '#64748B',
+              }}
+            >
+              {m === 'lottie' ? '✨ Lottie animation' : '🎬 MP4 video'}
+            </button>
+          ))}
+        </div>
+
+        {fest.mediaType === 'lottie' ? (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 700, minWidth: '150px' }}>Animation URL:</label>
+            <input
+              type="text"
+              value={fest.lottieUrl}
+              onChange={(e) => setFest({ ...fest, lottieUrl: e.target.value })}
+              placeholder="https://...json (lottiefiles.com)"
+              style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+            />
+          </div>
+        ) : (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="video/mp4,video/*"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadVideo(f);
+                e.target.value = '';
+              }}
+            />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploadPct !== null}
+              className="btn"
+              style={{ width: '100%', padding: '14px', borderRadius: '10px', marginBottom: '12px', background: '#7C3AED', color: '#fff', border: 'none', fontWeight: 800, fontSize: '14px', cursor: 'pointer', opacity: uploadPct !== null ? 0.6 : 1 }}
+            >
+              {uploadPct !== null ? `⏳ Uploading... ${uploadPct}%` : '📤 Upload MP4 video (seedha phone par chalega)'}
+            </button>
+            {uploadPct !== null && (
+              <div style={{ height: '8px', borderRadius: '4px', background: '#F1F5F9', marginBottom: '12px', overflow: 'hidden' }}>
+                <div style={{ width: `${uploadPct}%`, height: '100%', background: '#7C3AED', transition: 'width 0.2s' }} />
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 700, minWidth: '150px' }}>Video URL:</label>
+              <input
+                type="text"
+                value={fest.videoUrl}
+                onChange={(e) => setFest({ ...fest, videoUrl: e.target.value })}
+                placeholder="Upload karo ya link paste karo"
+                style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+              />
+            </div>
+            {fest.videoUrl && (
+              <video src={fest.videoUrl} controls playsInline preload="metadata" style={{ width: '100%', borderRadius: '12px', marginBottom: '12px', maxHeight: '220px', background: '#000' }} />
+            )}
+          </>
+        )}
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 700, minWidth: '150px' }}>Greeting title:</label>
+          <input
+            type="text"
+            value={fest.greetingTitle}
+            onChange={(e) => setFest({ ...fest, greetingTitle: e.target.value })}
+            placeholder="Shubh Deepawali ✨"
+            style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 700, minWidth: '150px' }}>Subtitle / offer:</label>
+          <input
+            type="text"
+            value={fest.greetingSubtitle}
+            onChange={(e) => setFest({ ...fest, greetingSubtitle: e.target.value })}
+            placeholder="Festive sweets & flat 20% OFF"
+            style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 700, minWidth: '150px' }}>Gradient colors:</label>
+          <input
+            type="text"
+            value={fest.gradientColors}
+            onChange={(e) => setFest({ ...fest, gradientColors: e.target.value })}
+            placeholder="#7B1E0E,#F21F3D,#FF7900"
+            style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+          />
+        </div>
+
+        <label style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={fest.showOneTimeBlast}
+            onChange={(e) => setFest({ ...fest, showOneTimeBlast: e.target.checked })}
+            style={{ width: '18px', height: '18px' }}
+          />
+          🎊 App-open confetti blast (ek baar per festival)
+        </label>
+
+        {/* live gradient preview */}
+        <div style={{
+          height: '64px', borderRadius: '12px', marginBottom: '16px',
+          background: `linear-gradient(135deg, ${(fest.gradientColors.split(',').map((c) => c.trim()).filter(Boolean).join(', ') || '#F21F3D,#FF7900')})`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#fff', fontWeight: 800, fontSize: '15px',
+          textShadow: '0 1px 4px rgba(0,0,0,0.4)',
+        }}>
+          {fest.greetingTitle || 'Banner preview'}
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => saveFest(true)}
+            disabled={festSaving}
+            className="btn"
+            style={{ flex: 1, minWidth: '140px', padding: '12px', borderRadius: '10px', background: '#16A34A', color: '#fff', border: 'none', fontWeight: 800, cursor: 'pointer', opacity: festSaving ? 0.6 : 1 }}
+          >
+            {festSaving ? 'Saving...' : '🚀 Activate + Show in App'}
+          </button>
+          <button
+            onClick={() => saveFest(false)}
+            disabled={festSaving}
+            className="btn"
+            style={{ flex: 1, minWidth: '140px', padding: '12px', borderRadius: '10px', background: '#64748B', color: '#fff', border: 'none', fontWeight: 800, cursor: 'pointer', opacity: festSaving ? 0.6 : 1 }}
+          >
+            🔴 Turn Banner OFF
+          </button>
+        </div>
+
+        <div style={{ marginTop: '12px', padding: '12px 14px', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0', fontSize: '12px', color: '#475569', lineHeight: 1.5 }}>
+          💡 <strong>Animation URL kahan se?</strong> lottiefiles.com par festival search karo → animation kholo → JSON link copy karo → upar paste karo. Khali chhodo to gradient card dikhega.
+        </div>
+      </div>
 
       {/* ── 📲 App Force-Update Controls (Instant blocking screen on older apps) ── */}
       <div className="card" style={{ padding: '24px', marginTop: '16px', border: '1px solid #E2E8F0', borderRadius: '16px' }}>

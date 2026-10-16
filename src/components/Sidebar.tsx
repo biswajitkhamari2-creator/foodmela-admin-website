@@ -1,29 +1,32 @@
 import { NavLink } from 'react-router-dom';
 
-const overviewItems = [
-  { to: '/', label: 'Dashboard', icon: '◧' },
+const mainItems = [
+  { to: '/orders', label: 'Orders', icon: '🧾' },
+  { to: '/', label: 'Dashboard', icon: '📊', end: true },
+  { to: '/products', label: 'Food Menu', icon: '🍔' },
+  { to: '/analytics', label: 'Analytics', icon: '📈' },
 ];
 
-const operationsItems = [
-  { to: '/orders', label: 'Orders', icon: '🧾' },
+const growthItems = [
+  { to: '/partners', label: 'Grow your kitchen', icon: '🏪' },
+  { to: '/customers', label: 'New Customers', icon: '👥' },
+  { to: '/approvals', label: 'New Delivery', icon: '🛵' },
+  { to: '/earnings', label: 'This week', icon: '📅' },
+];
+
+const moreItems = [
   { to: '/archived-orders', label: 'Archived Orders', icon: '📦' },
   { to: '/invoices', label: 'Invoices', icon: '🧮' },
   { to: '/payments', label: 'Payments', icon: '💳' },
-  { to: '/products', label: 'Prices', icon: '🏷️' },
   { to: '/categories', label: 'Categories', icon: '🗂️' },
   { to: '/banners', label: 'Banners', icon: '🎉' },
+  { to: '/homepage', label: 'Homepage Builder', icon: '🏠' },
   { to: '/notices', label: 'Notice Board', icon: '📢' },
   { to: '/promos', label: 'Promo Codes', icon: '🏷️' },
-];
-
-const systemItems = [
-  { to: '/customers', label: 'Customers', icon: '👥' },
-  { to: '/partners', label: 'Delivery Partners', icon: '🛵' },
-  { to: '/approvals', label: 'Pending Approvals', icon: '⏳' },
-  { to: '/earnings', label: 'Earnings', icon: '💰' },
   { to: '/withdrawals', label: 'Withdrawals', icon: '💸' },
-  { to: '/analytics', label: 'Analytics', icon: '📊' },
   { to: '/calls', label: 'Call Recordings', icon: '🎙️' },
+  { to: '/reviews', label: 'Reviews', icon: '⭐' },
+  { to: '/wallet', label: 'Wallet', icon: '💰' },
   { to: '/logs', label: 'Activity Logs', icon: '📜' },
   { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];
@@ -43,18 +46,18 @@ export default function Sidebar({
   onLogout: () => void;
   adminName: string;
 }) {
-  const renderItem = (item: { to: string; label: string; icon: string }, end = false) => (
-    <NavLink key={item.to} to={item.to} end={end} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+  const renderItem = (item: { to: string; label: string; icon: string; end?: boolean }) => (
+    <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
       <span className="nav-icon-box">{item.icon}</span>
       {!collapsed && <span className="nav-label">{item.label}</span>}
-      {!collapsed && item.to === '/approvals' && pendingCount > 0 && (
+      {!collapsed && (item.to === '/approvals') && pendingCount > 0 && (
         <span className="nav-badge">{pendingCount}</span>
       )}
     </NavLink>
   );
 
   return (
-    <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+    <aside className={`sidebar fm-sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-brand">
         <div className="brand-icon">
           <img src={logoUrl} alt="Food Mela" className="brand-logo-img" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
@@ -65,7 +68,7 @@ export default function Sidebar({
               <strong>FOOD MELA</strong>
               <span className="brand-badge-pro">PRO</span>
             </div>
-            <span>Operations Console</span>
+            <span>Admin Space</span>
           </div>
         )}
         <button className="collapse-btn" onClick={onToggle} title={collapsed ? 'Expand' : 'Collapse'}>
@@ -73,15 +76,12 @@ export default function Sidebar({
         </button>
       </div>
 
-      {!collapsed && <div className="nav-section"><span>OVERVIEW</span></div>}
       <nav className="sidebar-nav">
-        {overviewItems.map((item) => renderItem(item, true))}
-
-        {!collapsed && <div className="nav-section"><span>OPERATIONS</span></div>}
-        {operationsItems.map((item) => renderItem(item))}
-
-        {!collapsed && <div className="nav-section"><span>SYSTEM</span></div>}
-        {systemItems.map((item) => renderItem(item))}
+        {mainItems.map((item) => renderItem(item))}
+        {!collapsed && <div className="nav-section"><span>GROWTH</span></div>}
+        {growthItems.map((item) => renderItem(item))}
+        {!collapsed && <div className="nav-section"><span>MANAGE</span></div>}
+        {moreItems.map((item) => renderItem(item))}
       </nav>
 
       <div className="sidebar-footer">
@@ -93,9 +93,9 @@ export default function Sidebar({
             <div className="admin-info">
               <div className="admin-info-top">
                 <strong>{adminName || 'Admin'}</strong>
-                <span className="admin-role-tag">Super Admin</span>
+                <span className="admin-role-tag">Administrator</span>
               </div>
-              <span className="admin-info-sub">Operations Center</span>
+              <span className="admin-info-sub">Food Mela ADMIN SPACE</span>
             </div>
           )}
           <span className="live-dot" title="Live Operations Online" />

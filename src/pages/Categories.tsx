@@ -5,6 +5,8 @@ import { db, storage } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { EmptyState, Toast, ConfirmDialog } from '../components/UI';
 
+export type CategoryStatus = 'live' | 'coming_soon';
+
 export interface CategoryRow {
   id: string; // key, e.g. pharma
   label?: string;
@@ -14,6 +16,7 @@ export interface CategoryRow {
   logoType?: 'emoji' | 'static' | 'animated';
   sortOrder?: number;
   isActive?: boolean;
+  status?: CategoryStatus; // live = khula, coming_soon = badge ke saath locked
 }
 
 const emptyForm = {
@@ -25,6 +28,7 @@ const emptyForm = {
   logoType: 'emoji' as 'emoji' | 'static' | 'animated',
   sortOrder: '0',
   isActive: true,
+  status: 'live' as CategoryStatus,
 };
 
 async function uploadCategoryLogo(file: File): Promise<string> {
@@ -67,6 +71,7 @@ export default function Categories() {
       logoType: r.logoType ?? (r.animationUrl ? 'animated' : r.logoUrl ? 'static' : 'emoji'),
       sortOrder: String(r.sortOrder ?? 0),
       isActive: r.isActive ?? true,
+      status: r.status ?? 'live',
     });
   };
 
@@ -99,6 +104,7 @@ export default function Categories() {
         logoType: form.logoType,
         sortOrder: Number(form.sortOrder) || 0,
         isActive: form.isActive,
+        status: form.status,
         updatedAt: serverTimestamp(),
       };
       if (formId) {
@@ -144,6 +150,16 @@ export default function Categories() {
     }
   };
 
+  const flipStatus = async (r: CategoryRow) => {
+    const next = (r.status ?? 'live') === 'live' ? 'coming_soon' : 'live';
+    try {
+      await updateDoc(doc(db, 'app_categories', r.id), { status: next, updatedAt: serverTimestamp() });
+      setToast({ message: next === 'live' ? `🟢 "${r.label ?? r.id}" ab Live — customer app me khula` : `🕒 "${r.label ?? r.id}" ab Coming Soon — customer app me locked badge`, type: 'success' });
+    } catch (e: unknown) {
+      setToast({ message: e instanceof Error ? e.message : 'Update failed', type: 'error' });
+    }
+  };
+
   if (loading) return <div className="page"><div className="skeleton" style={{ height: 400 }} /></div>;
 
   return (
@@ -164,7 +180,7 @@ export default function Categories() {
       ) : (
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>Logo</th><th>Key</th><th>Label</th><th>Type</th><th>Order</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Logo</th><th>Key</th><th>Label</th><th>Type</th><th>Order</th><th>Mode</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
@@ -179,6 +195,16 @@ export default function Categories() {
                   <td>{r.label ?? r.id}</td>
                   <td>{r.logoType ?? 'emoji'}</td>
                   <td>{r.sortOrder ?? 0}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className={`chip ${(r.status ?? 'live') === 'live' ? 'chip-active' : ''}`}
+                      onClick={() => flipStatus(r)}
+                      title="Live / Coming Soon badlo"
+                    >
+                      {(r.status ?? 'live') === 'live' ? '🟢 Live' : '🕒 Coming Soon'}
+                    </button>
+                  </td>
                   <td>
                     <button type="button" className={`chip ${(r.isActive ?? true) ? 'chip-active' : ''}`} onClick={() => toggleActive(r)}>
                       {(r.isActive ?? true) ? 'Live ✓' : 'Hidden'}
@@ -244,6 +270,20 @@ export default function Categories() {
                 {form.animationUrl !== '' && !form.animationUrl.endsWith('.json') && <img src={form.animationUrl} alt="preview" style={{ width: '100%', height: 100, objectFit: 'contain', marginTop: 8 }} />}
               </div>
             )}
+            <div className="form-group">
+              <label>🟢 Live ya 🕒 Coming Soon?</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className={`chip ${form.status === 'live' ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, status: 'live' })}>
+                  🟢 Live — khula, order ho sakta hai
+                </button>
+                <button type="button" className={`chip ${form.status === 'coming_soon' ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, status: 'coming_soon' })}>
+                  🕒 Coming Soon — badge ke saath locked
+                </button>
+              </div>
+              <p className="muted" style={{ margin: '6px 0 0', fontSize: 12 }}>
+                Coming Soon par customer app me tile dikhega par tap karne par "Coming Soon" message aayega. Customer app turant update ho jayega — restart nahi chahiye.
+              </p>
+            </div>
             <div className="form-group">
               <label>Visible on Customer App?</label>
               <button type="button" className={`chip ${form.isActive ? 'chip-active' : ''}`} onClick={() => setForm({ ...form, isActive: !form.isActive })}>

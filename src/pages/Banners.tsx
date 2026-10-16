@@ -1,21 +1,14 @@
 import { useEffect, useState, useMemo } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, addDoc, type Timestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase';
 
-// Free image hosting (no Firebase Storage / Blaze upgrade needed).
-// ImgBB key is entered by admin in the UI, kept in sessionStorage only.
-async function uploadToImgBB(dataUrl: string, apiKey: string): Promise<string> {
-  const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-  const body = new URLSearchParams();
-  body.set('key', apiKey);
-  body.set('image', base64);
-  const res = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body });
-  if (!res.ok) throw new Error(`ImgBB upload error ${res.status}`);
-  const data = (await res.json().catch(() => null)) as { data?: { url?: string; display_url?: string }; error?: { message?: string } } | null;
-  if (!data) throw new Error(`ImgBB upload error ${res.status} (empty response)`);
-  const url = data.data?.display_url ?? data.data?.url;
-  if (!url) throw new Error(data.error?.message ?? 'ImgBB returned no URL');
-  return url;
+// Firebase Storage upload — no external API key, admin session se direct.
+async function uploadBannerImage(file: File): Promise<string> {
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase().slice(0, 4).replace(/[^a-z0-9]/g, '') || 'png';
+  const path = `ai_banners/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const snap = await uploadBytes(ref(storage, path), file, { contentType: file.type || 'image/png' });
+  return getDownloadURL(snap.ref);
 }
 import { useAuth } from '../contexts/AuthContext';
 import { tsToDate, fmtDateTime } from '../utils/helpers';
@@ -27,6 +20,7 @@ interface BannerRow {
   subtitle?: string;
   badge?: string;
   imageUrl?: string;
+  animationUrl?: string;
   emoji?: string;
   isActive?: boolean;
   sortOrder?: number;
@@ -42,6 +36,7 @@ const emptyForm = {
   subtitle: '',
   badge: '',
   imageUrl: '',
+  animationUrl: '',
   emoji: '🎉',
   isActive: true,
   sortOrder: '0',
@@ -118,6 +113,8 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
   const [deleting, setDeleting] = useState<BannerRow | null>(null);
   // AI studio: prompt → 3 generated frames → approve ALL as animated slideshow draft
   const [aiLoading, setAiLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [debugData, setDebugData] = useState<string>('');
   const [aiPreviews, setAiPreviews] = useState<{ url: string; seed: number }[]>([]);
   const [aiImgState, setAiImgState] = useState<Record<number, 'loading' | 'ok' | 'error'>>({});
   const aiOkCount = aiPreviews.filter((p) => aiImgState[p.seed] === 'ok' && p.url).length;
@@ -138,6 +135,21 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
   }, [rows, search, globalSearch]);
 
   const resetAi = () => { setAiLoading(false); setAiPreviews([]); setAiImgState({}); };
+
+  // Upload apni image → Firebase Storage (ai_banners/) → public URL auto-fill.
+  const handleImageUpload = async (file: File) => {
+    if (!form) return;
+    if (file.size > 10 * 1024 * 1024) { setToast({ message: 'Image 10MB se chhoti honi chahiye', type: 'error' }); return; }
+    setUploading(true);
+    try {
+      const url = await uploadBannerImage(file);
+      setForm((f) => (f ? { ...f, imageUrl: url } : f));
+      setToast({ message: 'Image uploaded ✅', type: 'success' });
+    } catch (e: unknown) {
+      setToast({ message: e instanceof Error ? e.message : 'Upload failed', type: 'error' });
+    }
+    setUploading(false);
+  };
   const openNew = () => { setFormId(null); setForm({ ...emptyForm }); resetAi(); };
   const openEdit = (r: BannerRow) => {
     setFormId(r.id);
@@ -146,6 +158,7 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
       subtitle: r.subtitle ?? '',
       badge: r.badge ?? '',
       imageUrl: r.imageUrl ?? '',
+      animationUrl: r.animationUrl ?? '',
       emoji: r.emoji ?? '🎉',
       isActive: r.isActive ?? true,
       sortOrder: String(r.sortOrder ?? 0),
@@ -268,6 +281,7 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
         subtitle: form.subtitle.trim(),
         badge: form.badge.trim(),
         imageUrl: form.imageUrl.trim(),
+        animationUrl: form.animationUrl.trim(),
         emoji: form.emoji.trim() || '🎉',
         isActive: form.isActive,
         sortOrder: Number(form.sortOrder) || 0,
@@ -319,6 +333,38 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
     }
   };
 
+  // Debug: Firestore me kya pada hai — app par banner kyun nahi dikh raha.
+  const handleDebug = async () => {
+    setDebugData('loading...');
+    try {
+      const { adminFetch } = await import('../utils/adminApi');
+      const res = await adminFetch('/api/admin/debug/banners');
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) {
+        setDebugData(`❌ ${res.status}: ${data?.error || 'no response'}`);
+        return;
+      }
+      const lines = (data.docs as Array<Record<string, unknown>>).map((d) => {
+        const active = d.isActive;
+        const activeOk = active === true;
+        const startOk = !d.startAt || String(d.startAt) <= new Date().toISOString();
+        const endOk = !d.endAt || String(d.endAt) >= new Date().toISOString();
+        const visible = activeOk && startOk && endOk;
+        return [
+          `${visible ? '✅' : '❌'} ${d.id}`,
+          `  title: ${d.title || '(empty)'}`,
+          `  isActive=${active} (${d.isActiveType})`,
+          `  sortOrder=${d.sortOrder} (${d.sortOrderType})`,
+          `  image=${d.hasImage ? 'YES' : 'NO'} frames=${d.hasFrames}`,
+          `  start=${d.startAt ?? '—'} end=${d.endAt ?? '—'}`,
+        ].join('\n');
+      });
+      setDebugData(`count=${data.count}\n\n${lines.join('\n\n') || '(no docs)'}`);
+    } catch (e: unknown) {
+      setDebugData(`❌ ${(e as Error).message}`);
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleting) return;
     try {
@@ -351,9 +397,16 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
             <input placeholder="Search campaigns..." value={globalSearch ? globalSearch : search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <button className="btn btn-primary" onClick={openNew}>➕ New campaign</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => void handleDebug()}>🔍 App par kyun nahi?</button>
         </div>
         <span className="muted">The lowest sort-order active banner within its date window shows on the customer home screen. GIF / animated WebP URLs animate automatically.</span>
       </div>
+
+      {debugData && (
+        <div style={{ background: '#1F2937', color: '#FCD34D', borderRadius: 12, padding: 14, fontFamily: 'monospace', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: 14 }}>
+          <strong style={{ color: '#9CA3AF' }}>🔍 BANNER DEBUG (screenshot bhejo):</strong>{'\n'}{debugData}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <EmptyState icon="🎉" title="No campaigns yet" subtitle="Create a Diwali, Nuakhai, New Year or offer campaign — it appears on the home screen without an app update." />
@@ -488,10 +541,39 @@ export default function Banners({ globalSearch }: { globalSearch?: string }) {
                 {form.subtitle && <div className="cell-sub">{form.subtitle}</div>}
               </div>
             )}
-            <div className="form-group"><label>Banner image / GIF URL (optional — or pick AI above)</label><input placeholder="https://.../diwali.gif" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} /></div>
+            <div className="form-group">
+              <label>Banner image — apni photo upload karo ya URL / AI</label>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <label className="btn btn-sm btn-ghost" style={{ cursor: uploading ? 'wait' : 'pointer', opacity: uploading ? 0.6 : 1 }}>
+                  {uploading ? '⏳ Uploading...' : '📤 Upload Image'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    disabled={uploading}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImageUpload(f); e.target.value = ''; }}
+                  />
+                </label>
+              </div>
+              <input placeholder="https://.../diwali.gif (ya upar Upload dabao)" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} />
+            </div>
             {form.imageUrl.trim() !== '' && (
               <div style={{ marginBottom: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0' }}>
                 <img src={form.imageUrl.trim()} alt="preview" style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              </div>
+            )}
+            <div className="form-group">
+              <label>🎬 Animation — GIF / video URL (plays on app home)</label>
+              <input placeholder="https://.../offer.gif ya .../promo.mp4" value={form.animationUrl} onChange={(e) => setForm({ ...form, animationUrl: e.target.value })} />
+              <small style={{ color: '#888' }}>Empty = no animation strip. GIF plays directly; MP4 plays with controls. Shows instantly on app via live listener.</small>
+            </div>
+            {form.animationUrl.trim() !== '' && (
+              <div style={{ marginBottom: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0' }}>
+                {/\.(mp4|webm|mov)(\?|$)/i.test(form.animationUrl.trim()) ? (
+                  <video src={form.animationUrl.trim()} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} controls muted loop />
+                ) : (
+                  <img src={form.animationUrl.trim()} alt="animation preview" style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                )}
               </div>
             )}
             <div className="form-group"><label>Emoji fallback</label><input placeholder="🎉" value={form.emoji} onChange={(e) => setForm({ ...form, emoji: e.target.value })} /></div>
